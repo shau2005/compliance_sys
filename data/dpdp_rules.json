@@ -1,0 +1,243 @@
+[
+  {
+    "rule_id": "DPDP-001",
+    "rule_name": "Missing Consent Before Processing",
+    "dpdp_section": "Consent Requirement",
+    "description": "Personal data processed without valid consent.",
+    "severity": "HIGH",
+    "risk_weight": 0.9,
+    "entity": "customer_personal_data",
+    "check_type": "boolean_check",
+    "condition": {
+      "field": "consent_flag",
+      "operator": "equals",
+      "value": false
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-002",
+    "rule_name": "Processing Beyond Stated Purpose",
+    "dpdp_section": "Purpose Limitation",
+    "description": "Processing purpose does not match consented purpose.",
+    "severity": "HIGH",
+    "risk_weight": 0.85,
+    "entity": "customer_personal_data",
+    "check_type": "comparison_check",
+    "condition": {
+      "field_1": "processing_purpose",
+      "operator": "not_equals",
+      "field_2": "consented_purpose"
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-003",
+    "rule_name": "Retention Beyond Allowed Period",
+    "dpdp_section": "Storage Limitation",
+    "description": "Data retained after retention expiry date.",
+    "severity": "HIGH",
+    "risk_weight": 0.8,
+    "entity": "customer_personal_data",
+    "check_type": "date_comparison",
+    "condition": {
+      "field": "retention_expiry_date",
+      "operator": "past_date"
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-004",
+    "rule_name": "Missing Notice to Data Principal",
+    "dpdp_section": "Notice Requirement",
+    "description": "Data processing without providing notice to the data principal.",
+    "severity": "MEDIUM",
+    "risk_weight": 0.6,
+    "entity": "customer_personal_data",
+    "check_type": "boolean_check",
+    "condition": {
+      "field": "notice_provided",
+      "operator": "equals",
+      "value": false
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-005",
+    "rule_name": "Children Data Without Guardian Consent",
+    "dpdp_section": "Children Data Protection",
+    "description": "Child's data processed without guardian consent.",
+    "severity": "CRITICAL",
+    "risk_weight": 1.0,
+    "entity": "customer_personal_data",
+    "check_type": "compound_check",
+    "condition": {
+      "age_field": "age",
+      "age_operator": "less_than",
+      "age_value": 18,
+      "guardian_consent_field": "guardian_consent",
+      "guardian_operator": "equals",
+      "guardian_value": false
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-006",
+    "rule_name": "Unauthorized Third Party Data Sharing",
+    "dpdp_section": "Data Sharing",
+    "description": "Data shared with third party without consent.",
+    "severity": "HIGH",
+    "risk_weight": 0.9,
+    "entity": "processing_logs",
+    "check_type": "compound_check",
+    "condition": {
+      "share_field": "shared_with_third_party",
+      "share_operator": "equals",
+      "share_value": true,
+      "consent_field": "consent_for_sharing",
+      "consent_operator": "equals",
+      "consent_value": false
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-007",
+    "rule_name": "Missing Data Minimization",
+    "dpdp_section": "Data Minimization",
+    "description": "More data fields collected than required.",
+    "severity": "MEDIUM",
+    "risk_weight": 0.5,
+    "entity": "data_inventory",
+    "check_type": "comparison_check",
+    "condition": {
+      "field_1": "collected_fields",
+      "operator": "greater_than",
+      "field_2": "required_fields"
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-008",
+    "rule_name": "Sensitive Data Stored Without Encryption",
+    "dpdp_section": "Security Safeguards",
+    "description": "Sensitive personal data stored without encryption.",
+    "severity": "CRITICAL",
+    "risk_weight": 0.95,
+    "entity": "customer_personal_data",
+    "check_type": "boolean_check",
+    "condition": {
+      "field": "pii_encrypted",
+      "operator": "equals",
+      "value": false
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-009",
+    "rule_name": "Missing Grievance Redress Mechanism",
+    "dpdp_section": "Data Principal Rights",
+    "description": "No grievance redress endpoint available.",
+    "severity": "LOW",
+    "risk_weight": 0.3,
+    "entity": "data_inventory",
+    "check_type": "boolean_check",
+    "condition": {
+      "field": "grievance_endpoint_available",
+      "operator": "equals",
+      "value": false
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-010",
+    "rule_name": "Failure to Honor Data Erasure Request",
+    "dpdp_section": "Right to Erasure",
+    "description": "Erasure request received but data not deleted.",
+    "severity": "HIGH",
+    "risk_weight": 0.85,
+    "entity": "customer_personal_data",
+    "check_type": "compound_check",
+    "condition": {
+      "request_field": "erasure_requested",
+      "request_operator": "equals",
+      "request_value": true,
+      "deleted_field": "data_deleted",
+      "deleted_operator": "equals",
+      "deleted_value": false
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-011",
+    "rule_name": "Excess Data Retention Without Purpose",
+    "dpdp_section": "Purpose and Storage Limitation",
+    "description": "Data retained even after processing purpose is completed.",
+    "severity": "MEDIUM",
+    "risk_weight": 0.6,
+    "entity": "data_inventory",
+    "check_type": "compound_check",
+    "condition": {
+      "retain_field": "data_retained",
+      "retain_operator": "equals",
+      "retain_value": true,
+      "purpose_field": "purpose_completed",
+      "purpose_operator": "equals",
+      "purpose_value": true
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-012",
+    "rule_name": "Missing Audit Logs for Data Access",
+    "dpdp_section": "Accountability",
+    "description": "Data access occurs but audit logs are unavailable.",
+    "severity": "MEDIUM",
+    "risk_weight": 0.55,
+    "entity": "processing_logs",
+    "check_type": "boolean_check",
+    "condition": {
+      "field": "access_log_available",
+      "operator": "equals",
+      "value": false
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-013",
+    "rule_name": "Unauthorized Employee Access to PII",
+    "dpdp_section": "Security Safeguards",
+    "description": "Employee without authorized role accessed PII.",
+    "severity": "HIGH",
+    "risk_weight": 0.9,
+    "entity": "processing_logs",
+    "check_type": "compound_check",
+    "condition": {
+      "access_field": "accessed_pii",
+      "access_operator": "equals",
+      "access_value": true,
+      "role_field": "employee_role",
+      "role_operator": "not_in",
+      "allowed_roles": ["admin", "analyst"]
+    },
+    "enabled": true
+  },
+  {
+    "rule_id": "DPDP-014",
+    "rule_name": "Delayed Breach Notification",
+    "dpdp_section": "Breach Reporting",
+    "description": "Breach detected but notification delayed beyond threshold.",
+    "severity": "CRITICAL",
+    "risk_weight": 0.95,
+    "entity": "processing_logs",
+    "check_type": "compound_check",
+    "condition": {
+      "breach_field": "breach_detected",
+      "breach_operator": "equals",
+      "breach_value": true,
+      "delay_field": "notification_delay",
+      "delay_operator": "greater_than",
+      "delay_threshold": 72
+    },
+    "enabled": true
+  }
+]
