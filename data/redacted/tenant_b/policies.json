@@ -1,0 +1,8 @@
+{
+    "company_name": "RiskyPay Inc.",
+    "consent_flag": false,
+    "pii_encrypted": false,
+    "data_sharing": true,
+    "retention_policy_days": 365,
+    "access_control": "weak"
+}

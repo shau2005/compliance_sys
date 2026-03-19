@@ -1,0 +1,5 @@
+{
+  "data_collected": ["email", "aadhaar"],
+  "storage": "plain_text",
+  "third_party_sharing": true
+}

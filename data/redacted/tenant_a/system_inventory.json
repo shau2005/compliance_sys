@@ -1,0 +1,8 @@
+{
+    "data_collected": [
+        "email",
+        "phone"
+    ],
+    "storage": "encrypted_db",
+    "third_party_sharing": false
+}
