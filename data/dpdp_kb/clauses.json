@@ -1,0 +1,142 @@
+[
+  {
+    "clause_id": "DPDP-001",
+    "legal_title": "Consent for Processing Personal Data",
+    "dpdp_section": ["Section 6(1)", "Section 5"],
+    "legal_text": "Personal data shall be processed only upon obtaining consent of the Data Principal after providing notice.",
+    "plain_english_obligation": "Organizations must obtain valid consent before processing personal data.",
+    "severity_weight": 0.9,
+    "evidence_required": ["consent_flag"],
+    "keywords": ["consent", "processing", "lawful"]
+  },
+  {
+    "clause_id": "DPDP-002",
+    "legal_title": "Purpose Limitation",
+    "dpdp_section": ["Section 5"],
+    "legal_text": "Notice must specify the purpose of processing and data must only be used for that purpose.",
+    "plain_english_obligation": "Data must only be used for the purpose the user agreed to.",
+    "severity_weight": 0.85,
+    "evidence_required": ["processing_purpose", "consented_purpose"],
+    "keywords": ["purpose", "consent", "usage"]
+  },
+  {
+    "clause_id": "DPDP-003",
+    "legal_title": "Storage Limitation",
+    "dpdp_section": ["Section 8(7)"],
+    "legal_text": "Personal data shall be erased as soon as it is reasonable to assume that the purpose is no longer being served.",
+    "plain_english_obligation": "Data should not be kept longer than necessary.",
+    "severity_weight": 0.8,
+    "evidence_required": ["retention_expiry_date"],
+    "keywords": ["retention", "storage", "expiry"]
+  },
+  {
+    "clause_id": "DPDP-004",
+    "legal_title": "Notice to Data Principal",
+    "dpdp_section": ["Section 5"],
+    "legal_text": "A notice must be given to the Data Principal describing personal data and purpose before consent.",
+    "plain_english_obligation": "Users must be informed before collecting their data.",
+    "severity_weight": 0.6,
+    "evidence_required": ["notice_provided"],
+    "keywords": ["notice", "transparency"]
+  },
+  {
+    "clause_id": "DPDP-005",
+    "legal_title": "Children's Data Protection",
+    "dpdp_section": ["Section 9(1)"],
+    "legal_text": "Processing of personal data of children requires verifiable consent of the parent or lawful guardian.",
+    "plain_english_obligation": "Children’s data cannot be processed without guardian consent.",
+    "severity_weight": 1.0,
+    "evidence_required": ["age", "guardian_consent"],
+    "keywords": ["children", "guardian", "consent"]
+  },
+  {
+    "clause_id": "DPDP-006",
+    "legal_title": "Third Party Data Sharing",
+    "dpdp_section": ["Section 6"],
+    "legal_text": "Consent must be obtained for each specific purpose including sharing with third parties.",
+    "plain_english_obligation": "Data cannot be shared with others without consent.",
+    "severity_weight": 0.9,
+    "evidence_required": ["shared_with_third_party", "consent_for_sharing"],
+    "keywords": ["sharing", "third party"]
+  },
+  {
+    "clause_id": "DPDP-007",
+    "legal_title": "Data Minimization",
+    "dpdp_section": ["Section 4"],
+    "legal_text": "A person may process personal data only for lawful purposes and only such data as is necessary.",
+    "plain_english_obligation": "Collect only the data that is actually needed.",
+    "severity_weight": 0.5,
+    "evidence_required": ["collected_fields", "required_fields"],
+    "keywords": ["minimization", "collection"]
+  },
+  {
+    "clause_id": "DPDP-008",
+    "legal_title": "Security Safeguards",
+    "dpdp_section": ["Section 8(5)"],
+    "legal_text": "The Data Fiduciary shall implement reasonable security safeguards to prevent personal data breach.",
+    "plain_english_obligation": "Personal data must be securely stored.",
+    "severity_weight": 0.95,
+    "evidence_required": ["pii_encrypted"],
+    "keywords": ["security", "encryption"]
+  },
+  {
+    "clause_id": "DPDP-009",
+    "legal_title": "Grievance Redressal",
+    "dpdp_section": ["Section 13"],
+    "legal_text": "The Data Principal shall have the right to readily available means of grievance redressal.",
+    "plain_english_obligation": "Organizations must provide a way for users to raise complaints.",
+    "severity_weight": 0.3,
+    "evidence_required": ["grievance_endpoint_available"],
+    "keywords": ["grievance", "complaint"]
+  },
+  {
+    "clause_id": "DPDP-010",
+    "legal_title": "Right to Erasure",
+    "dpdp_section": ["Section 12(1)(b)"],
+    "legal_text": "The Data Principal shall have the right to correction and erasure of personal data.",
+    "plain_english_obligation": "User data must be deleted when requested.",
+    "severity_weight": 0.85,
+    "evidence_required": ["erasure_requested", "data_deleted"],
+    "keywords": ["erasure", "deletion"]
+  },
+  {
+    "clause_id": "DPDP-011",
+    "legal_title": "Purpose Completion and Retention",
+    "dpdp_section": ["Section 8(7)"],
+    "legal_text": "Personal data shall be erased once the purpose is no longer being served.",
+    "plain_english_obligation": "Do not keep data after its purpose is fulfilled.",
+    "severity_weight": 0.6,
+    "evidence_required": ["data_retained", "purpose_completed"],
+    "keywords": ["retention", "purpose"]
+  },
+  {
+    "clause_id": "DPDP-012",
+    "legal_title": "Accountability and Record Keeping",
+    "dpdp_section": ["Section 10"],
+    "legal_text": "Significant Data Fiduciaries must undertake measures such as audits and record keeping.",
+    "plain_english_obligation": "Organizations must maintain logs of data access and operations.",
+    "severity_weight": 0.55,
+    "evidence_required": ["access_log_available"],
+    "keywords": ["audit", "logs"]
+  },
+  {
+    "clause_id": "DPDP-013",
+    "legal_title": "Access Control and Authorized Processing",
+    "dpdp_section": ["Section 8(5)"],
+    "legal_text": "Security safeguards must ensure only authorized access to personal data.",
+    "plain_english_obligation": "Only authorized employees can access personal data.",
+    "severity_weight": 0.9,
+    "evidence_required": ["employee_role", "accessed_pii"],
+    "keywords": ["access", "authorization"]
+  },
+  {
+    "clause_id": "DPDP-014",
+    "legal_title": "Breach Notification",
+    "dpdp_section": ["Section 8(6)"],
+    "legal_text": "In the event of a personal data breach, the Data Fiduciary shall notify the Board and affected individuals.",
+    "plain_english_obligation": "Data breaches must be reported promptly.",
+    "severity_weight": 0.95,
+    "evidence_required": ["breach_detected", "notification_delay"],
+    "keywords": ["breach", "notification"]
+  }
+]
