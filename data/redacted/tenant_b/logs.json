@@ -1,0 +1,8 @@
+[
+    {
+        "user": "PHONE_1",
+        "action": "data_access",
+        "timestamp": "2026-02-10T11:00:00",
+        "authorized": false
+    }
+]
