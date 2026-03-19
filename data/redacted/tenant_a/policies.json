@@ -1,8 +1,0 @@
-{
-    "company_name": "SafeFinance Ltd.",
-    "consent_flag": true,
-    "pii_encrypted": true,
-    "data_sharing": false,
-    "retention_policy_days": 30,
-    "access_control": "strict"
-}

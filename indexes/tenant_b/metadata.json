@@ -1,0 +1,20 @@
+[
+  {
+    "text": "tenant_id: tenant_b | log_id: LOG-001 | event_type: data_access | user: EMAIL_1 | employee_role: intern | accessed_pii: True | access_log_available: False | shared_with_third_party: True | consent_for_sharing: False | breach_detected: True | notification_delay: 96 | erasure_requested: True | data_deleted: False | timestamp: 2026-02-10T10:00:00",
+    "path": "[0]",
+    "source_file": "logs.json",
+    "tenant_id": "tenant_b"
+  },
+  {
+    "text": "tenant_id: tenant_b | company_name: RiskyPay Inc. | consent_flag: False | notice_provided: False | processing_purpose: marketing | consented_purpose: loan_processing | pii_encrypted: False | grievance_endpoint_available: False",
+    "path": "",
+    "source_file": "policies.json",
+    "tenant_id": "tenant_b"
+  },
+  {
+    "text": "tenant_id: tenant_b | component_id: COMP-001 | name: User Database | collected_fields: 12 | required_fields: 4 | storage: plain_text | pii_encrypted: False | access_control_enabled: False | audit_logging_enabled: False | retention_expiry_date: 2023-01-01 | data_retained: True | purpose_completed: True | erasure_requested: False | data_deleted: False | age: 15 | guardian_consent: False",
+    "path": "",
+    "source_file": "system_inventory.json",
+    "tenant_id": "tenant_b"
+  }
+]
