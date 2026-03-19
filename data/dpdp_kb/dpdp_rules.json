@@ -1,6 +1,7 @@
 [
   {
     "rule_id": "DPDP-001",
+    "clause_id": "DPDP-001",
     "rule_name": "Missing Consent Before Processing",
     "dpdp_section": "Consent Requirement",
     "description": "Personal data processed without valid consent.",
@@ -17,6 +18,7 @@
   },
   {
     "rule_id": "DPDP-002",
+    "clause_id": "DPDP-002",
     "rule_name": "Processing Beyond Stated Purpose",
     "dpdp_section": "Purpose Limitation",
     "description": "Processing purpose does not match consented purpose.",
@@ -33,6 +35,7 @@
   },
   {
     "rule_id": "DPDP-003",
+    "clause_id": "DPDP-003",
     "rule_name": "Retention Beyond Allowed Period",
     "dpdp_section": "Storage Limitation",
     "description": "Data retained after retention expiry date.",
@@ -48,6 +51,7 @@
   },
   {
     "rule_id": "DPDP-004",
+    "clause_id": "DPDP-004",
     "rule_name": "Missing Notice to Data Principal",
     "dpdp_section": "Notice Requirement",
     "description": "Data processing without providing notice to the data principal.",
@@ -64,6 +68,7 @@
   },
   {
     "rule_id": "DPDP-005",
+    "clause_id": "DPDP-005",
     "rule_name": "Children Data Without Guardian Consent",
     "dpdp_section": "Children Data Protection",
     "description": "Child's data processed without guardian consent.",
@@ -83,6 +88,7 @@
   },
   {
     "rule_id": "DPDP-006",
+    "clause_id": "DPDP-006",
     "rule_name": "Unauthorized Third Party Data Sharing",
     "dpdp_section": "Data Sharing",
     "description": "Data shared with third party without consent.",
@@ -102,6 +108,7 @@
   },
   {
     "rule_id": "DPDP-007",
+    "clause_id": "DPDP-007",
     "rule_name": "Missing Data Minimization",
     "dpdp_section": "Data Minimization",
     "description": "More data fields collected than required.",
@@ -118,6 +125,7 @@
   },
   {
     "rule_id": "DPDP-008",
+    "clause_id": "DPDP-008",
     "rule_name": "Sensitive Data Stored Without Encryption",
     "dpdp_section": "Security Safeguards",
     "description": "Sensitive personal data stored without encryption.",
@@ -134,6 +142,7 @@
   },
   {
     "rule_id": "DPDP-009",
+    "clause_id": "DPDP-009",
     "rule_name": "Missing Grievance Redress Mechanism",
     "dpdp_section": "Data Principal Rights",
     "description": "No grievance redress endpoint available.",
@@ -150,6 +159,7 @@
   },
   {
     "rule_id": "DPDP-010",
+    "clause_id": "DPDP-010",
     "rule_name": "Failure to Honor Data Erasure Request",
     "dpdp_section": "Right to Erasure",
     "description": "Erasure request received but data not deleted.",
@@ -169,6 +179,7 @@
   },
   {
     "rule_id": "DPDP-011",
+    "clause_id": "DPDP-011",
     "rule_name": "Excess Data Retention Without Purpose",
     "dpdp_section": "Purpose and Storage Limitation",
     "description": "Data retained even after processing purpose is completed.",
@@ -188,6 +199,7 @@
   },
   {
     "rule_id": "DPDP-012",
+    "clause_id": "DPDP-012",
     "rule_name": "Missing Audit Logs for Data Access",
     "dpdp_section": "Accountability",
     "description": "Data access occurs but audit logs are unavailable.",
@@ -204,6 +216,7 @@
   },
   {
     "rule_id": "DPDP-013",
+    "clause_id": "DPDP-013",
     "rule_name": "Unauthorized Employee Access to PII",
     "dpdp_section": "Security Safeguards",
     "description": "Employee without authorized role accessed PII.",
@@ -223,6 +236,7 @@
   },
   {
     "rule_id": "DPDP-014",
+    "clause_id": "DPDP-014",
     "rule_name": "Delayed Breach Notification",
     "dpdp_section": "Breach Reporting",
     "description": "Breach detected but notification delayed beyond threshold.",

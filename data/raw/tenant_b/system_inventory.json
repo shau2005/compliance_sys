@@ -1,5 +1,32 @@
 {
-  "data_collected": ["email", "aadhaar"],
+  "tenant_id": "tenant_b",
+  "component_id": "COMP-001",
+  "name": "User Database",
+  "data_collected": [
+    "email",
+    "phone",
+    "aadhaar",
+    "pan",
+    "location",
+    "income",
+    "credit_score",
+    "bank_account",
+    "health_records",
+    "biometric",
+    "browsing_history",
+    "social_media"
+  ],
+  "collected_fields": 12,
+  "required_fields": 4,
   "storage": "plain_text",
-  "third_party_sharing": true
+  "pii_encrypted": false,
+  "access_control_enabled": false,
+  "audit_logging_enabled": false,
+  "retention_expiry_date": "2023-01-01",
+  "data_retained": true,
+  "purpose_completed": true,
+  "erasure_requested": false,
+  "data_deleted": false,
+  "age": 15,
+  "guardian_consent": false
 }
