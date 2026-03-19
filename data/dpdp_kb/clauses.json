@@ -138,8 +138,5 @@
     "severity_weight": 0.95,
     "evidence_required": ["breach_detected", "notification_delay"],
     "keywords": ["breach", "notification"]
-  },
-  {
-    "test": "new change"
   }
 ]
