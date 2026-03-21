@@ -1,0 +1,7 @@
+{
+  "tenant_id": "tenant_a",
+  "violation_count": 0,
+  "risk_score": 0,
+  "risk_tier": "COMPLIANT",
+  "violations": []
+}
