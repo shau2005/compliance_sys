@@ -23,68 +23,90 @@ TIER_RANGES = {
 }
 
 # ═══════════════════════════════════════════════════════════
-# SECTION 2: CALCULATE RISK SCORE FROM VIOLATIONS
+# SECTION 2: CALCULATE RISK SCORE FROM VIOLATIONS (FREQUENCY-WEIGHTED)
 # ═══════════════════════════════════════════════════════════
 
 def calculate_score(violations: List[Dict]) -> Dict:
     """
-    Calculate risk score from list of violations.
+    Calculate risk score from list of violations using frequency-weighted formula.
+    
+    IMPROVED FORMULA:
+    Risk Score = Σ(Risk Weight × Severity Multiplier × √Occurrence Count)
+    
+    This ensures:
+    - Unique rule violations are the primary driver
+    - Multiple occurrences increase score logarithmically (not linearly)
+    - Adding more logs with same issues doesn't inflate risk artificially
     
     Args:
-        violations (list): List of violation objects from evaluate_record()
+        violations (list): List of violation objects with occurrence_count
     
     Returns:
-        dict: Scoring breakdown
+        dict: Scoring breakdown with frequency weighting
         {
-            "score": 78.5,
-            "tier": "CRITICAL",
-            "violation_count": 11,
+            "score": 25.5,
+            "tier": "MEDIUM",
+            "unique_rules_violated": 10,
+            "total_violation_occurrences": 30,
             "breakdown": [
                 {
-                    "rule_id": "DPDP-001",
+                    "rule_id": "DPDP-013",
                     "severity": "HIGH",
                     "risk_weight": 0.9,
-                    "contribution": 67.5
+                    "occurrence_count": 7,
+                    "contribution_to_score": 2.38
                 },
                 ...
             ]
         }
     """
+    import math
     
     # If no violations, score is 0 (COMPLIANT)
     if not violations or len(violations) == 0:
         return {
             "score": 0,
             "tier": "COMPLIANT",
-            "violation_count": 0,
+            "unique_rules_violated": 0,
+            "total_violation_occurrences": 0,
             "breakdown": []
         }
     
-    # Calculate score for each violation
+    # Calculate score for each unique violation
     breakdown = []
     total_score = 0
+    total_occurrences = 0
     
     for violation in violations:
         severity = violation.get("severity", "MEDIUM")
         risk_weight = violation.get("risk_weight", 0.5)
+        occurrence_count = violation.get("occurrence_count", 1)
+        
+        # Track total occurrences
+        total_occurrences += occurrence_count
         
         # Get multiplier for this severity
         multiplier = SEVERITY_MULTIPLIERS.get(severity, 0.5)
         
-        # Calculate contribution: risk_weight × multiplier × 100
-        contribution = risk_weight * multiplier * 100
+        # NEW FORMULA: risk_weight × multiplier × √occurrence_count
+        # This makes frequency impact logarithmic instead of linear
+        frequency_factor = math.sqrt(occurrence_count)
+        contribution = risk_weight * multiplier * frequency_factor
         
         breakdown.append({
             "rule_id": violation.get("rule_id"),
             "severity": severity,
             "risk_weight": risk_weight,
-            "contribution": round(contribution, 2)
+            "occurrence_count": occurrence_count,
+            "contribution_to_score": round(contribution, 2)
         })
         
         total_score += contribution
     
-    # Calculate average score
-    avg_score = total_score / len(violations)
+    # Normalize score to 0-100 range
+    # Divide by number of unique rules to get average impact per rule
+    num_unique_rules = len(violations)
+    avg_score = (total_score / num_unique_rules) * 10  # Scale to reasonable range
     
     # Cap at 100
     final_score = min(avg_score, 100)
@@ -99,7 +121,8 @@ def calculate_score(violations: List[Dict]) -> Dict:
     return {
         "score": round(final_score, 2),
         "tier": tier,
-        "violation_count": len(violations),
+        "unique_rules_violated": num_unique_rules,
+        "total_violation_occurrences": total_occurrences,
         "breakdown": breakdown
     }
 

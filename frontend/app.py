@@ -27,12 +27,19 @@ def display_report(data: dict):
         icon = tier_icons.get(data['risk_tier'], "⚪")
         st.metric("Risk Tier", f"{icon} {data['risk_tier']}")
     with col4:
-        st.metric("Violations", data['violation_count'])
+        # Support both old and new field names for compatibility
+        unique_rules = data.get('unique_rules_violated', data.get('violation_count', 0))
+        st.metric("Unique Rules Violated", unique_rules)
+
+    # Show total occurrences if available (new field)
+    if 'total_violation_occurrences' in data:
+        st.info(f"📊 **Total Violation Occurrences:** {data['total_violation_occurrences']} (across {data['unique_rules_violated']} rules)")
 
     st.markdown("---")
     st.subheader("🚨 Violations Detected")
 
-    if data['violation_count'] == 0:
+    total_violations = data.get('total_violation_occurrences', data.get('violation_count', 0))
+    if total_violations == 0:
         st.success("✅ Fully Compliant — No violations detected")
     else:
         severity_icons = {
@@ -44,10 +51,14 @@ def display_report(data: dict):
 
         for v in data['violations']:
             icon = severity_icons.get(v['severity'], "⚪")
+            
+            # Include occurrence count in the title if available
+            occurrence_info = f" (×{v.get('occurrence_count', 1)})" if v.get('occurrence_count', 1) > 1 else ""
+            
             with st.expander(
-                f"{icon} [{v['severity']}] {v['rule_name']}"
+                f"{icon} [{v['severity']}] {v['rule_name']}{occurrence_info}"
             ):
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     st.write(f"**Rule ID:**     {v['rule_id']}")
                     st.write(f"**Section:**     {v['dpdp_section']}")
@@ -55,6 +66,12 @@ def display_report(data: dict):
                 with col2:
                     st.write(f"**Risk Weight:** {v['risk_weight']}")
                     st.write(f"**Reason:**      {v['reason']}")
+                with col3:
+                    # Show new frequency data if available
+                    if 'occurrence_count' in v:
+                        st.write(f"**Occurrences:** {v['occurrence_count']}")
+                    if 'contribution_to_score' in v:
+                        st.write(f"**Score Contribution:** {v['contribution_to_score']:.2f}")
 
     st.markdown("---")
     st.subheader("📥 Download Report")

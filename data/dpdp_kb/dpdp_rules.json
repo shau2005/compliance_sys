@@ -165,7 +165,7 @@
     "description": "Erasure request received but data not deleted.",
     "severity": "HIGH",
     "risk_weight": 0.85,
-    "entity": "customer_personal_data",
+    "entity": "processing_logs",
     "check_type": "compound_check",
     "condition": {
       "request_field": "erasure_requested",

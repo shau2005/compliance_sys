@@ -14,14 +14,17 @@ class AnalyzeRequest(BaseModel):
 
 class ViolationItem(BaseModel):
     """
-    One violation found in the compliance check.
+    One unique violation found in the compliance check.
+    Includes occurrence count for frequency-weighted risk calculation.
     """
-    rule_id:      str
-    rule_name:    str
-    dpdp_section: str
-    severity:     str
-    risk_weight:  float
-    reason:       str
+    rule_id:              str
+    rule_name:            str
+    dpdp_section:         str
+    severity:             str
+    risk_weight:          float
+    occurrence_count:     int                          # How many times this rule violated
+    contribution_to_score: float                       # Contribution to overall risk score
+    reason:               str
 
 
 class RiskScore(BaseModel):
@@ -35,13 +38,15 @@ class RiskScore(BaseModel):
 class AnalyzeResponse(BaseModel):
     """
     What our API sends back to the client.
+    Includes frequency-weighted risk assessment.
     """
-    tenant_id:       str
-    violation_count: int
-    risk_score:      float
-    risk_tier:       str
-    violations:      List[ViolationItem]
-    status:          str
+    tenant_id:                      str
+    unique_rules_violated:          int                 # Unique compliance rules breached
+    total_violation_occurrences:    int                 # Total count across all logs
+    risk_score:                     float
+    risk_tier:                      str
+    violations:                     List[ViolationItem]
+    status:                         str
 # ```
 
 # Save the file.

@@ -94,8 +94,14 @@ def evaluate_comparison_check(record, condition):
     elif operator == "equals":
         return value_1 == value_2
     elif operator == "greater_than":
+        # Add None checks to prevent TypeError
+        if value_1 is None or value_2 is None:
+            return False
         return value_1 > value_2
     elif operator == "less_than":
+        # Add None checks to prevent TypeError
+        if value_1 is None or value_2 is None:
+            return False
         return value_1 < value_2
     
     return False
@@ -260,7 +266,10 @@ def evaluate_compound_check(record, condition):
         delay_threshold = condition.get("delay_threshold")
         
         delay = record.get(delay_field)
-        delay_check = delay > delay_threshold if delay_operator == "greater_than" else False
+        # Add None check to prevent TypeError
+        delay_check = False
+        if delay_operator == "greater_than" and delay is not None:
+            delay_check = delay > delay_threshold
         
         return breach_check and delay_check
     
@@ -331,6 +340,7 @@ def evaluate_record(record, rules):
                 "severity": rule.get("severity"),
                 "risk_weight": rule.get("risk_weight"),
                 "reason": f"Rule {rule.get('rule_id')} violated: {rule.get('rule_name')}",
+                "entity": rule.get("entity"),  # ← Add entity for deduplication
                 "evidence": record
             }
             violations.append(violation)
@@ -362,42 +372,123 @@ def evaluate_tenant(tenant_id):
     logs_file = tenant_dir / "logs.json"
     inventory_file = tenant_dir / "system_inventory.json"
     
-    # Merge all records into one combined record for evaluation
-    combined_record = {}
+    # Step 1: Load base record from policies and inventory
+    base_record = {}
     
     if policies_file.exists():
         with open(policies_file, 'r') as f:
             policies_data = json.load(f)
             if isinstance(policies_data, dict):
-                combined_record.update(policies_data)
-    
-    if logs_file.exists():
-        with open(logs_file, 'r') as f:
-            logs_data = json.load(f)
-            # Handle if logs is a list - take first record
-            if isinstance(logs_data, list) and len(logs_data) > 0:
-                combined_record.update(logs_data[0])
-            elif isinstance(logs_data, dict):
-                combined_record.update(logs_data)
+                base_record.update(policies_data)
     
     if inventory_file.exists():
         with open(inventory_file, 'r') as f:
             inventory_data = json.load(f)
             if isinstance(inventory_data, dict):
-                combined_record.update(inventory_data)
+                base_record.update(inventory_data)
             elif isinstance(inventory_data, list) and len(inventory_data) > 0:
-                combined_record.update(inventory_data[0])
+                base_record.update(inventory_data[0])
     
     # Load rules
     rules = load_rules()
     
-    # Evaluate the combined record
-    violations = evaluate_record(combined_record, rules)
+    # Step 2: Evaluate base record (policies + inventory)
+    all_violations = []
+    violations = evaluate_record(base_record, rules)
+    all_violations.extend(violations)
+    
+    # Step 3: Process and evaluate EACH log entry separately ✅ FIXED
+    logs_data = []
+    if logs_file.exists():
+        with open(logs_file, 'r') as f:
+            logs_data = json.load(f)
+    
+    if isinstance(logs_data, list):
+        # ✅ IMPROVED: Loop through ALL log entries, not just first
+        for log_entry in logs_data:
+            if isinstance(log_entry, dict):
+                # Create combined record: base + individual log entry
+                combined_record = {**base_record, **log_entry}
+                
+                # Evaluate this specific log entry
+                log_violations = evaluate_record(combined_record, rules)
+                all_violations.extend(log_violations)
+    
+    elif isinstance(logs_data, dict):
+        # If logs is a single dict, treat it as one entry
+        combined_record = {**base_record, **logs_data}
+        log_violations = evaluate_record(combined_record, rules)
+        all_violations.extend(log_violations)
+    
+    # Step 4: Separate and deduplicate violations by type
+    # Policy violations should be counted ONCE (from base record evaluation)
+    # Log violations should be counted PER LOG ENTRY
+    
+    policy_violations = {}  # Policy rules - count once
+    log_violations_list = []  # Log rules - count per log
+    
+    # Separate violations by entity type
+    for violation in all_violations:
+        rule_id = violation.get("rule_id")
+        entity = violation.get("entity", "")
+        evidence = violation.get("evidence", {})
+        log_id = evidence.get("log_id")
+        
+        # Policy/inventory violations - only keep first occurrence
+        if entity in ["customer_personal_data", "data_inventory"]:
+            if rule_id not in policy_violations:
+                policy_violations[rule_id] = {
+                    **violation,
+                    "occurrence_count": 1
+                }
+        # Log violations - track by rule + log_id
+        else:
+            key = f"{rule_id}:{log_id}" if log_id else rule_id
+            log_violations_list.append({
+                "rule_id": rule_id,
+                "violation_obj": violation,
+                "key": key
+            })
+    
+    # Deduplicate log violations by rule + log_id
+    unique_log_violations = {}
+    for item in log_violations_list:
+        key = item["key"]
+        if key not in unique_log_violations:
+            unique_log_violations[key] = {
+                **item["violation_obj"],
+                "occurrence_count": 1
+            }
+        else:
+            unique_log_violations[key]["occurrence_count"] += 1
+    
+    # Step 5: Aggregate by rule_id (combine multiple occurrences of same rule)
+    violations_by_rule = {}
+    
+    # Add policy violations
+    for rule_id, violation in policy_violations.items():
+        violations_by_rule[rule_id] = violation
+    
+    # Add log violations (aggregate by rule_id)
+    for violation_key, violation in unique_log_violations.items():
+        rule_id = violation.get("rule_id")
+        
+        if rule_id not in violations_by_rule:
+            violations_by_rule[rule_id] = {
+                **violation,
+                "occurrence_count": violation.get("occurrence_count", 1)
+            }
+        else:
+            # Accumulate occurrence count for recurring logs
+            violations_by_rule[rule_id]["occurrence_count"] += violation.get("occurrence_count", 1)
+    
+    violations_list = list(violations_by_rule.values())
     
     return {
         "tenant_id": tenant_id,
-        "total_violations": len(violations),
-        "violations": violations
+        "unique_rules_violated": len(violations_list),
+        "total_violation_occurrences": sum(v.get("occurrence_count", 1) for v in violations_list),
+        "violations": violations_list
     }
 
 
