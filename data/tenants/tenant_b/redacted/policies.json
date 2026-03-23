@@ -1,10 +1,9 @@
 {
-  "tenant_id": "tenant_b",
-  "company_name": "RiskyPay Inc.",
-  "consent_flag": false,
-  "notice_provided": false,
-  "processing_purpose": "marketing",
-  "consented_purpose": "loan_processing",
-  "pii_encrypted": false,
-  "grievance_endpoint_available": false
+    "tenant_id": "tenant_b",
+    "consent_flag": false,
+    "notice_provided": false,
+    "processing_purpose": "marketing",
+    "consented_purpose": "loan_processing",
+    "pii_encrypted": false,
+    "grievance_endpoint_available": false
 }

@@ -1,8 +1,9 @@
 {
-    "company_name": "SafeFinance Ltd.",
+    "tenant_id": "tenant_a",
     "consent_flag": true,
+    "notice_provided": true,
+    "processing_purpose": "loan_processing",
+    "consented_purpose": "loan_processing",
     "pii_encrypted": true,
-    "data_sharing": false,
-    "retention_policy_days": 30,
-    "access_control": "strict"
+    "grievance_endpoint_available": true
 }

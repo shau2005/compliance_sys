@@ -1,8 +1,9 @@
 {
-    "company_name": "RiskyPay Inc.",
+    "tenant_id": "tenant_b",
     "consent_flag": false,
+    "notice_provided": false,
+    "processing_purpose": "marketing",
+    "consented_purpose": "loan_processing",
     "pii_encrypted": false,
-    "data_sharing": true,
-    "retention_policy_days": 365,
-    "access_control": "weak"
+    "grievance_endpoint_available": false
 }

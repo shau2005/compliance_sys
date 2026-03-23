@@ -1,19 +1,11 @@
 {
-  "tenant_id": "tenant_a",
-  "component_id": "COMP-001",
-  "name": "User Database",
-  "data_collected": ["email", "phone"],
-  "collected_fields": 2,
-  "required_fields": 2,
-  "storage": "encrypted_db",
-  "pii_encrypted": true,
-  "access_control_enabled": true,
-  "audit_logging_enabled": true,
-  "retention_expiry_date": "2027-01-15",
-  "data_retained": false,
-  "purpose_completed": false,
-  "erasure_requested": false,
-  "data_deleted": false,
-  "age": 25,
-  "guardian_consent": true
+    "tenant_id": "tenant_a",
+    "collected_fields": 2,
+    "required_fields": 2,
+    "pii_encrypted": true,
+    "retention_expiry_date": "2027-01-15",
+    "data_retained": false,
+    "purpose_completed": false,
+    "age": 25,
+    "guardian_consent": true
 }
