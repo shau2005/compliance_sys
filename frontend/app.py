@@ -56,8 +56,11 @@ def display_report(data: dict):
             occurrence_info = f" (×{v.get('occurrence_count', 1)})" if v.get('occurrence_count', 1) > 1 else ""
             
             with st.expander(
-                f"{icon} [{v['severity']}] {v['rule_name']}{occurrence_info}"
+                f"{icon} [{v['severity']}] {v['rule_name']}{occurrence_info}",
+                expanded=True  # Changed to True so violations are visible by default
             ):
+                # SECTION 1: VIOLATION DETAILS
+                st.markdown("### 📋 Violation Details")
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.write(f"**Rule ID:**     {v['rule_id']}")
@@ -72,6 +75,30 @@ def display_report(data: dict):
                         st.write(f"**Occurrences:** {v['occurrence_count']}")
                     if 'contribution_to_score' in v:
                         st.write(f"**Score Contribution:** {v['contribution_to_score']:.2f}")
+                
+                # SECTION 2: EXPLAINABILITY (XAI) - NEW!
+                if 'explanation' in v and v['explanation']:
+                    st.markdown("---")
+                    st.markdown("### Summary")
+                    
+                    explanation = v['explanation']
+                    
+                    # WHY DETECTED
+                    st.markdown("####  Why Was This Detected?")
+                    st.info(explanation.get('why_detected', 'No explanation available'))
+                    
+                    # EVIDENCE
+                    st.markdown("####  Evidence")
+                    st.write(explanation.get('evidence', 'No evidence details available'))
+                    
+                    # RISK REASON
+                    st.markdown("####  Risk & Impact")
+                    st.error(explanation.get('risk_reason', 'No risk details available'))
+                    
+                    # MITIGATION
+                    st.markdown("####  How to Remediate")
+                    mitigation = explanation.get('mitigation', 'No mitigation steps available')
+                    st.success(mitigation)
 
     st.markdown("---")
     st.subheader("📥 Download Report")

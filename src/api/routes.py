@@ -2,10 +2,11 @@
 
 import json
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from src.api.schemas import AnalyzeRequest, AnalyzeResponse, ViolationItem
+from src.api.schemas import AnalyzeRequest, AnalyzeResponse, ViolationItem, ExplanationDetail
 from src.rules_engine.evaluate import evaluate_tenant, evaluate_record, load_rules
 from src.scoring.score import calculate_score
 from src.privacy_gateway.redact import redact_dict
+from src.explainability.service import enrich_violations
 
 router = APIRouter()
 
@@ -37,10 +38,13 @@ def analyze_tenant(request: AnalyzeRequest):
         # Step 1: Run rules engine
         result = evaluate_tenant(request.tenant_id)
 
-        # Step 2: Calculate risk score using frequency-weighted formula
-        score = calculate_score(result['violations'])
+        # Step 2: Enrich violations with explanations
+        enriched_violations = enrich_violations(result['violations'])
 
-        # Step 3: Build violation items with occurrence count and contribution
+        # Step 3: Calculate risk score using frequency-weighted formula
+        score = calculate_score(enriched_violations)
+
+        # Step 4: Build violation items with occurrence count and contribution
         violations = [
             ViolationItem(
                 rule_id              = v['rule_id'],
@@ -54,9 +58,15 @@ def analyze_tenant(request: AnalyzeRequest):
                      if b['rule_id'] == v['rule_id']),
                     0.0
                 ),
-                reason               = v['reason']
+                reason               = v['reason'],
+                explanation          = ExplanationDetail(
+                    why_detected = v['explanation']['why_detected'],
+                    evidence     = v['explanation']['evidence'],
+                    risk_reason  = v['explanation']['risk_reason'],
+                    mitigation   = v['explanation']['mitigation']
+                ) if 'explanation' in v else None
             )
-            for v in result['violations']
+            for v in enriched_violations
         ]
 
         # Step 4: Return response
@@ -213,10 +223,13 @@ async def analyze_upload(
         
         violations_raw = list(violations_by_rule.values())
         
-        # ── Step 8: Calculate risk score using frequency-weighted formula ──
-        score = calculate_score(violations_raw)
+        # ── Step 8: Enrich violations with explanations ──────────────────
+        enriched_violations = enrich_violations(violations_raw)
+        
+        # ── Step 9: Calculate risk score using frequency-weighted formula ──
+        score = calculate_score(enriched_violations)
 
-        # ── Step 9: Build violation items with occurrence and contribution ──
+        # ── Step 10: Build violation items with occurrence and contribution ──
         violations = [
             ViolationItem(
                 rule_id              = v['rule_id'],
@@ -230,12 +243,18 @@ async def analyze_upload(
                      if b['rule_id'] == v['rule_id']),
                     0.0
                 ),
-                reason               = v['reason']
+                reason               = v['reason'],
+                explanation          = ExplanationDetail(
+                    why_detected = v['explanation']['why_detected'],
+                    evidence     = v['explanation']['evidence'],
+                    risk_reason  = v['explanation']['risk_reason'],
+                    mitigation   = v['explanation']['mitigation']
+                ) if 'explanation' in v else None
             )
-            for v in violations_raw
+            for v in enriched_violations
         ]
 
-        # ── Step 10: Return response ──────────────────────
+        # ── Step 11: Return response ──────────────────────
         return AnalyzeResponse(
             tenant_id                   = "uploaded_tenant",
             unique_rules_violated       = len(violations_raw),

@@ -1,7 +1,7 @@
 # src/api/schemas.py
 
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 
 class AnalyzeRequest(BaseModel):
@@ -12,10 +12,22 @@ class AnalyzeRequest(BaseModel):
     tenant_id: str
 
 
+class ExplanationDetail(BaseModel):
+    """
+    Structured explanation for a compliance violation.
+    Provides why the violation was detected, supporting evidence, risk, and mitigation.
+    """
+    why_detected: str       # Why the violation was detected
+    evidence: str           # Supporting evidence from the data
+    risk_reason: str        # Risk and impact explanation
+    mitigation: str         # Steps to remediate the violation
+
+
 class ViolationItem(BaseModel):
     """
     One unique violation found in the compliance check.
-    Includes occurrence count for frequency-weighted risk calculation.
+    Includes occurrence count for frequency-weighted risk calculation,
+    and structured explanation for remediation guidance.
     """
     rule_id:              str
     rule_name:            str
@@ -25,6 +37,7 @@ class ViolationItem(BaseModel):
     occurrence_count:     int                          # How many times this rule violated
     contribution_to_score: float                       # Contribution to overall risk score
     reason:               str
+    explanation:          Optional[ExplanationDetail] = None  # Structured explanation (XAI)
 
 
 class RiskScore(BaseModel):
