@@ -181,6 +181,8 @@ else:
         "The system will redact PII and run full compliance check."
     )
 
+    company_name = st.text_input("🏢 Company Name", help="Enter the company name")
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -207,10 +209,13 @@ else:
     run = st.button(
         "🔍 Run Compliance Check",
         type="primary",
-        disabled=not (policies_file and logs_file and inventory_file)
+        disabled=not (policies_file and logs_file and inventory_file and company_name)
     )
 
     if run:
+        # Skip DB insert; use generated tenant ID directly
+        tenant_id = f"uploaded_{company_name.replace(' ', '_').lower()}"
+
         with st.spinner("Analyzing uploaded files..."):
             try:
                 response = requests.post(
@@ -225,7 +230,8 @@ else:
                         "inventory": ("system_inventory.json",
                                       inventory_file.getvalue(),
                                       "application/json")
-                    }
+                    },
+                    data={"tenant_id": tenant_id, "company_name": company_name}
                 )
                 data = response.json()
             except Exception as e:
