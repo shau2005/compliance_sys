@@ -348,6 +348,56 @@ def evaluate_record(record, rules):
     return violations
 
 
+def extract_triggered_fields(rule_id, rules):
+    """
+    Extract which fields from the rule condition triggered a violation.
+    
+    Args:
+        rule_id: The rule_id to extract fields from
+        rules: All rule definitions
+    
+    Returns:
+        list: Field names that trigger this rule
+    """
+    fields_triggered = []
+    
+    # Find the rule definition
+    for rule in rules:
+        if rule.get("rule_id") == rule_id:
+            condition = rule.get("condition", {})
+            
+            # Extract field names from condition based on check_type
+            check_type = rule.get("check_type")
+            
+            if check_type == "boolean_check":
+                field = condition.get("field")
+                if field:
+                    fields_triggered.append(field)
+            
+            elif check_type == "comparison_check":
+                field_1 = condition.get("field_1")
+                field_2 = condition.get("field_2")
+                if field_1:
+                    fields_triggered.append(field_1)
+                if field_2:
+                    fields_triggered.append(field_2)
+            
+            elif check_type == "date_comparison":
+                field = condition.get("field")
+                if field:
+                    fields_triggered.append(field)
+            
+            elif check_type == "compound_check":
+                # Extract all relevant fields from compound conditions
+                for key, value in condition.items():
+                    if key.endswith("_field"):
+                        fields_triggered.append(value)
+            
+            break
+    
+    return list(set(fields_triggered))  # Remove duplicates
+
+
 def evaluate_tenant(tenant_id):
     """
     Load all tenant data files and evaluate for violations.
@@ -397,90 +447,69 @@ def evaluate_tenant(tenant_id):
     violations = evaluate_record(base_record, rules)
     all_violations.extend(violations)
     
-    # Step 3: Process and evaluate EACH log entry separately ✅ FIXED
+    # Step 3: Process and evaluate EACH log entry separately with traceability tracking
     logs_data = []
     if logs_file.exists():
         with open(logs_file, 'r') as f:
             logs_data = json.load(f)
     
+    # Track which log IDs triggered which rules
+    rule_to_logs = {}  # rule_id -> set of log_ids that triggered it
+    
     if isinstance(logs_data, list):
-        # ✅ IMPROVED: Loop through ALL log entries, not just first
+        # Loop through ALL log entries
         for log_entry in logs_data:
             if isinstance(log_entry, dict):
+                log_id = log_entry.get("log_id", f"LOG-{logs_data.index(log_entry)}")
+                
                 # Create combined record: base + individual log entry
                 combined_record = {**base_record, **log_entry}
                 
                 # Evaluate this specific log entry
                 log_violations = evaluate_record(combined_record, rules)
+                
+                # Track log_id for each rule violation
+                for violation in log_violations:
+                    rule_id = violation.get("rule_id")
+                    if rule_id not in rule_to_logs:
+                        rule_to_logs[rule_id] = []
+                    if log_id not in rule_to_logs[rule_id]:
+                        rule_to_logs[rule_id].append(log_id)
+                
                 all_violations.extend(log_violations)
     
     elif isinstance(logs_data, dict):
         # If logs is a single dict, treat it as one entry
+        log_id = logs_data.get("log_id", "LOG-0")
         combined_record = {**base_record, **logs_data}
         log_violations = evaluate_record(combined_record, rules)
+        
+        for violation in log_violations:
+            rule_id = violation.get("rule_id")
+            if rule_id not in rule_to_logs:
+                rule_to_logs[rule_id] = []
+            if log_id not in rule_to_logs[rule_id]:
+                rule_to_logs[rule_id].append(log_id)
+        
         all_violations.extend(log_violations)
     
-    # Step 4: Separate and deduplicate violations by type
-    # Policy violations should be counted ONCE (from base record evaluation)
-    # Log violations should be counted PER LOG ENTRY
-    
-    policy_violations = {}  # Policy rules - count once
-    log_violations_list = []  # Log rules - count per log
-    
-    # Separate violations by entity type
-    for violation in all_violations:
-        rule_id = violation.get("rule_id")
-        entity = violation.get("entity", "")
-        evidence = violation.get("evidence", {})
-        log_id = evidence.get("log_id")
-        
-        # Policy/inventory violations - only keep first occurrence
-        if entity in ["customer_personal_data", "data_inventory"]:
-            if rule_id not in policy_violations:
-                policy_violations[rule_id] = {
-                    **violation,
-                    "occurrence_count": 1
-                }
-        # Log violations - track by rule + log_id
-        else:
-            key = f"{rule_id}:{log_id}" if log_id else rule_id
-            log_violations_list.append({
-                "rule_id": rule_id,
-                "violation_obj": violation,
-                "key": key
-            })
-    
-    # Deduplicate log violations by rule + log_id
-    unique_log_violations = {}
-    for item in log_violations_list:
-        key = item["key"]
-        if key not in unique_log_violations:
-            unique_log_violations[key] = {
-                **item["violation_obj"],
-                "occurrence_count": 1
-            }
-        else:
-            unique_log_violations[key]["occurrence_count"] += 1
-    
-    # Step 5: Aggregate by rule_id (combine multiple occurrences of same rule)
+    # Step 4: Aggregate violations by rule_id with traceability
     violations_by_rule = {}
     
-    # Add policy violations
-    for rule_id, violation in policy_violations.items():
-        violations_by_rule[rule_id] = violation
-    
-    # Add log violations (aggregate by rule_id)
-    for violation_key, violation in unique_log_violations.items():
+    for violation in all_violations:
         rule_id = violation.get("rule_id")
         
         if rule_id not in violations_by_rule:
             violations_by_rule[rule_id] = {
                 **violation,
-                "occurrence_count": violation.get("occurrence_count", 1)
+                "occurrence_count": 1,
+                "matched_record_ids": rule_to_logs.get(rule_id, []),
+                "fields_triggered": extract_triggered_fields(rule_id, rules),
+                "matched_logs_count": len(rule_to_logs.get(rule_id, []))
             }
         else:
-            # Accumulate occurrence count for recurring logs
-            violations_by_rule[rule_id]["occurrence_count"] += violation.get("occurrence_count", 1)
+            # Accumulate occurrence count
+            violations_by_rule[rule_id]["occurrence_count"] += 1
     
     violations_list = list(violations_by_rule.values())
     

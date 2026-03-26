@@ -162,56 +162,60 @@ VIOLATION_EXPLANATIONS: Dict[str, Dict[str, str]] = {
         ),
     },
 
-    # DPDP-006: Lack of Data Subject Rights Fulfillment
+    # DPDP-006: Unauthorized Third Party Data Sharing
     "DPDP-006": {
         "why_detected": (
-            "Mechanisms for data subject rights fulfillment not detected or not properly implemented. "
-            "The system found no evidence of processes for responding to access, rectification, "
-            "or deletion requests as required by DPDP."
+            "Personal data is being shared with third parties without explicit consent. "
+            "The system detected data marked as shared with third parties (shared_with_third_party=true), "
+            "but no corresponding consent for sharing with third parties was recorded (consent_for_sharing=false)."
         ),
         "evidence": (
-            "Compliance check evaluated policies and processes against DPDP data subject rights "
-            "requirements (access, rectification, deletion, portability) and found insufficient "
-            "or missing mechanisms to handle such requests."
+            "Compliance check found records where shared_with_third_party is True but "
+            "consent_for_sharing is False. This indicates unauthorized third-party data sharing "
+            "that violates DPDP's requirement for explicit consent before sharing personal data with "
+            "external entities."
         ),
         "risk_reason": (
-            "Failing to fulfill data subject rights violates fundamental DPDP obligations and "
-            "exposes the organization to regulatory action. It undermines individual privacy rights "
-            "and damages trust. Non-compliance with rights requests can result in penalties."
+            "Sharing personal data with third parties without explicit consent violates fundamental DPDP "
+            "principles and data subject rights. It exposes individuals' data to unauthorized recipients "
+            "without their knowledge or agreement. This creates significant compliance and privacy risks."
         ),
         "mitigation": (
-            "1. Establish clear procedures for handling data subject requests\n"
-            "2. Define and communicate timelines for request responses\n"
-            "3. Implement systems to track and manage incoming requests\n"
-            "4. Train teams on data subject rights and procedures\n"
-            "5. Create audit trails for all rights fulfillment activities\n"
-            "6. Regularly review rights fulfillment processes for effectiveness"
+            "1. Review all third-party data sharing arrangements\n"
+            "2. Obtain explicit consent from data subjects before sharing with any third parties\n"
+            "3. Implement consent tracking and management systems\n"
+            "4. Define and communicate data sharing purposes to data subjects\n"
+            "5. Establish data processing agreements with all third parties\n"
+            "6. Document justification for any necessary data sharing"
         ),
     },
 
-    # DPDP-007: Missing Privacy Policy or Transparency Requirements
+    # DPDP-007: Missing Data Minimization (Over-Collection)
     "DPDP-007": {
         "why_detected": (
-            "Privacy policy or transparency disclosures required by DPDP not detected or incomplete. "
-            "The system found missing or inadequate privacy documentation."
+            "Data minimization violation detected: more data fields are being collected than required. "
+            "The system found that collected_fields exceeds required_fields, indicating the organization "
+            "is collecting more personal data than is actually necessary."
         ),
         "evidence": (
-            "Compliance check searched for required privacy policy elements covering data collection, "
-            "usage, storage, and rights information. Found gaps in transparency documentation required "
-            "by DPDP Section 8 (Notice to data subject)."
+            "Compliance check compared collected_fields against required_fields and found that "
+            "more data is being collected than is actually needed. This violates DPDP's data minimization "
+            "principle (Section 4) which requires collecting only the minimum personal data necessary "
+            "for the stated purpose."
         ),
         "risk_reason": (
-            "Lack of transparent privacy communication violates DPDP transparency requirements and "
-            "prevents data subjects from making informed decisions about their data. This creates "
-            "regulatory and reputational risks."
+            "Over-collecting personal data violates the data minimization principle and increases "
+            "privacy risks for data subjects. Unnecessary data collection expands the scope of data "
+            "processing, increases storage and security risks, and limits the organization's ability to "
+            "control the extent of data handling."
         ),
         "mitigation": (
-            "1. Create comprehensive privacy policies covering all processing activities\n"
-            "2. Include clear information about data collection and usage\n"
-            "3. Document data retention periods and deletion procedures\n"
-            "4. Clearly explain data subject rights and how to exercise them\n"
-            "5. Make privacy policies easily accessible to data subjects\n"
-            "6. Regularly update policies to reflect actual practices"
+            "1. Conduct data mapping to identify all collected fields\n"
+            "2. Determine minimum fields required for each processing purpose\n"
+            "3. Remove collection of unnecessary fields from forms and systems\n"
+            "4. Implement field-level access controls to restrict collection\n"
+            "5. Review and update data collection processes and requirements\n"
+            "6. Document justification for any additional fields beyond the minimum"
         ),
     },
 

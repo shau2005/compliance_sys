@@ -44,7 +44,7 @@ def analyze_tenant(request: AnalyzeRequest):
         # Step 3: Calculate risk score using frequency-weighted formula
         score = calculate_score(enriched_violations)
 
-        # Step 4: Build violation items with occurrence count and contribution
+        # Step 4: Build violation items with occurrence count, contribution, and traceability
         violations = [
             ViolationItem(
                 rule_id              = v['rule_id'],
@@ -64,7 +64,10 @@ def analyze_tenant(request: AnalyzeRequest):
                     evidence     = v['explanation']['evidence'],
                     risk_reason  = v['explanation']['risk_reason'],
                     mitigation   = v['explanation']['mitigation']
-                ) if 'explanation' in v else None
+                ) if 'explanation' in v else None,
+                matched_record_ids   = v.get('matched_record_ids', []),
+                fields_triggered     = v.get('fields_triggered', []),
+                matched_logs_count   = v.get('matched_logs_count', 0)
             )
             for v in enriched_violations
         ]

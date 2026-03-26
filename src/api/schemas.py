@@ -27,7 +27,7 @@ class ViolationItem(BaseModel):
     """
     One unique violation found in the compliance check.
     Includes occurrence count for frequency-weighted risk calculation,
-    and structured explanation for remediation guidance.
+    structured explanation for remediation guidance, and traceability fields.
     """
     rule_id:              str
     rule_name:            str
@@ -38,6 +38,9 @@ class ViolationItem(BaseModel):
     contribution_to_score: float                       # Contribution to overall risk score
     reason:               str
     explanation:          Optional[ExplanationDetail] = None  # Structured explanation (XAI)
+    matched_record_ids:   List[str] = []               # Which log/record IDs triggered this violation
+    fields_triggered:     List[str] = []               # Which fields caused this violation
+    matched_logs_count:   int = 0                      # Count of unique logs that triggered this rule
 
 
 class RiskScore(BaseModel):
