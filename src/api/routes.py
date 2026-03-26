@@ -1,14 +1,35 @@
 # src/api/routes.py
 
 import json
-from fastapi import APIRouter, HTTPException, UploadFile, File
+import os
+import psycopg
+from dotenv import load_dotenv
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+
 from src.api.schemas import AnalyzeRequest, AnalyzeResponse, ViolationItem, ExplanationDetail
 from src.rules_engine.evaluate import evaluate_tenant, evaluate_record, load_rules
 from src.scoring.score import calculate_score
-from src.privacy_gateway.redact import redact_dict
+from src.privacy_gateway.redact import redact_file, redact_dict
 from src.explainability.service import enrich_violations
+load_dotenv()
+
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_PORT = os.getenv('DB_PORT', '5432')
+DB_NAME = os.getenv('DB_NAME', 'tenant_db')
+DB_USER = os.getenv('DB_USER', 'postgres')
+DB_PASSWORD = os.getenv('DB_PASSWORD', 'rasika23')
 
 router = APIRouter()
+
+def get_db_connection():
+    return psycopg.connect(
+        host=DB_HOST,
+        port=int(DB_PORT),
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        autocommit=False
+    )
 
 
 @router.get("/health")
@@ -21,7 +42,6 @@ def health_check():
         "status": "running",
         "service": "DPDP Compliance Engine"
     }
-
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze_tenant(request: AnalyzeRequest):
@@ -95,9 +115,11 @@ def analyze_tenant(request: AnalyzeRequest):
 
 @router.post("/analyze/upload", response_model=AnalyzeResponse)
 async def analyze_upload(
-    policies:  UploadFile = File(...),
-    logs:      UploadFile = File(...),
-    inventory: UploadFile = File(...)
+    policies:      UploadFile = File(...),
+    logs:          UploadFile = File(...),
+    inventory:     UploadFile = File(...),
+    tenant_id:     str = Form(...),
+    company_name:  str = Form(...)
 ):
     """
     Run full compliance check on uploaded files.
@@ -107,6 +129,7 @@ async def analyze_upload(
         - policies.json
         - logs.json
         - system_inventory.json
+        - tenant_id (form field)
 
     Output:
         Full compliance report with violations and risk score
@@ -118,11 +141,56 @@ async def analyze_upload(
         inventory_data = json.loads(await inventory.read())
 
         # ── Step 2: Redact PII from all files ────────────
-        policies_data  = redact_dict(policies_data)
-        logs_data      = redact_dict(logs_data)
-        inventory_data = redact_dict(inventory_data)
+        policies_data = redact_file(policies_data, "policies.json")
+        logs_data = redact_file(logs_data, "logs.json")
+        inventory_data = redact_file(inventory_data, "system_inventory.json")
 
-        # ── Step 3: Create base record from policies + inventory ──────────
+        # ── Step 3: Check or insert tenant ─────
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    # Check if tenant exists
+                    cur.execute(
+                        "SELECT tenant_id FROM tenants WHERE company_name = %s",
+                        (company_name,)
+                    )
+                    existing = cur.fetchone()
+                    if existing:
+                        db_tenant_id = existing[0]
+                    else:
+                        cur.execute(
+                            "INSERT INTO tenants (company_name) VALUES (%s) RETURNING tenant_id",
+                            (company_name,)
+                        )
+                        db_tenant_id = cur.fetchone()[0]
+                    conn.commit()
+        except Exception as db_ex:
+            raise HTTPException(status_code=500, detail=f"Tenant DB operation failed: {db_ex}")
+
+        # ── Step 4: Store redacted data in DB ──────────
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    # Insert policies
+                    cur.execute(
+                        "INSERT INTO policies (tenant_id, policy_json) VALUES (%s, %s)",
+                        (db_tenant_id, json.dumps(policies_data))
+                    )
+                    # Insert inventory
+                    cur.execute(
+                        "INSERT INTO redacted_sysinv (tenant_id, inventory_json) VALUES (%s, %s)",
+                        (db_tenant_id, json.dumps(inventory_data))
+                    )
+                    # Insert combined logs as a single row in redacted_logs
+                    cur.execute(
+                        "INSERT INTO redacted_logs (tenant_id, log_json) VALUES (%s, %s)",
+                        (db_tenant_id, json.dumps(logs_data))
+                    )
+                    conn.commit()
+        except Exception as db_ex:
+            raise HTTPException(status_code=500, detail=f"Redacted data DB insert failed: {db_ex}")
+
+        # ── Step 5: Create base record from policies + inventory ──────────
         base_record = {}
 
         if isinstance(policies_data, dict):
@@ -133,7 +201,7 @@ async def analyze_upload(
         elif isinstance(inventory_data, list) and len(inventory_data) > 0:
             base_record.update(inventory_data[0])
 
-        # ── Step 4: Run rules engine on base record ──────────────────────
+        # ── Step 6: Run rules engine on base record ──────────────────────
         rules = load_rules()
         all_violations = []
         
@@ -141,7 +209,7 @@ async def analyze_upload(
         violations_base = evaluate_record(base_record, rules)
         all_violations.extend(violations_base)
         
-        # ── Step 5: Evaluate EACH log entry separately ─────────────────
+        # ── Step 7: Evaluate EACH log entry separately ─────────────────
         if isinstance(logs_data, list):
             # ✅ FIXED: Loop through ALL log entries, not just first
             for log_entry in logs_data:
@@ -159,7 +227,7 @@ async def analyze_upload(
             log_violations = evaluate_record(combined_record, rules)
             all_violations.extend(log_violations)
         
-        # ── Step 6: Separate and deduplicate violations by type ────────────
+        # ── Step 8: Separate and deduplicate violations by type ────────────
         # Policy violations should be counted ONCE (from base record evaluation)
         # Log violations should be counted PER LOG ENTRY
         
@@ -201,7 +269,7 @@ async def analyze_upload(
             else:
                 unique_log_violations[key]["occurrence_count"] += 1
         
-        # ── Step 7: Aggregate by rule_id ──────────────────────────────────
+        # ── Step 9: Aggregate by rule_id ──────────────────────────────────
         violations_by_rule = {}
         
         # Add policy violations
@@ -254,40 +322,57 @@ async def analyze_upload(
             for v in enriched_violations
         ]
 
-        # ── Step 11: Return response ──────────────────────
-        return AnalyzeResponse(
-            tenant_id                   = "uploaded_tenant",
-            unique_rules_violated       = len(violations_raw),
-            total_violation_occurrences = sum(v.get('occurrence_count', 1) for v in violations_raw),
-            risk_score                  = score['score'],
-            risk_tier                   = score['tier'],
-            violations                  = violations,
-            status                      = "success"
+# ── Step 11: Save evaluation result to DB ──
+try:
+    # ── Step 11: Save evaluation result to DB ──
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO evaluation_results (tenant_id, result_json, risk_score) VALUES (%s, %s, %s)",
+                    (
+                        db_tenant_id,
+                        json.dumps({
+                            "tenant_id": str(db_tenant_id),
+                            "unique_rules_violated": len(enriched_violations),
+                            "total_violation_occurrences": sum(v.get('occurrence_count', 1) for v in enriched_violations),
+                            "risk_score": score['score'],
+                            "risk_tier": score['tier'],
+                            "violations": [v.dict() for v in violations],
+                            "status": "success"
+                        }),
+                        float(score['score'])
+                    )
+                )
+                conn.commit()
+    except Exception as db_ex:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation results DB insert failed: {db_ex}"
         )
 
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code = 400,
-            detail      = "Invalid JSON in uploaded files. "
-                          "Make sure all 3 files are valid JSON."
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code = 500,
-            detail      = f"Upload analysis failed: {str(e)}"
-        )
+    # ── Step 12: Return response ──
+    return AnalyzeResponse(
+        tenant_id                   = str(db_tenant_id),
+        unique_rules_violated       = len(enriched_violations),
+        total_violation_occurrences = sum(v.get('occurrence_count', 1) for v in enriched_violations),
+        risk_score                  = score['score'],
+        risk_tier                   = score['tier'],
+        violations                  = violations,
+        status                      = "success"
+    )
 
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code = 400,
-            detail      = "Invalid JSON in uploaded files. "
-                          "Make sure all 3 files are valid JSON."
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code = 500,
-            detail      = f"Upload analysis failed: {str(e)}"
-        )
+except json.JSONDecodeError:
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid JSON in uploaded files. Make sure all 3 files are valid JSON."
+    )
+
+except Exception as e:
+    raise HTTPException(
+        status_code=500,
+        detail=f"Upload analysis failed: {str(e)}"
+    )
 # ```
 
 # Save the file.
