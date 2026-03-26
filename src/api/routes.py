@@ -322,57 +322,97 @@ async def analyze_upload(
             for v in enriched_violations
         ]
 
-# ── Step 11: Save evaluation result to DB ──
-try:
-    # ── Step 11: Save evaluation result to DB ──
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO evaluation_results (tenant_id, result_json, risk_score) VALUES (%s, %s, %s)",
-                    (
-                        db_tenant_id,
-                        json.dumps({
-                            "tenant_id": str(db_tenant_id),
-                            "unique_rules_violated": len(enriched_violations),
-                            "total_violation_occurrences": sum(v.get('occurrence_count', 1) for v in enriched_violations),
-                            "risk_score": score['score'],
-                            "risk_tier": score['tier'],
-                            "violations": [v.dict() for v in violations],
-                            "status": "success"
-                        }),
-                        float(score['score'])
+        # ── Step 11: Save evaluation result to DB ──
+
+        try:
+
+            with get_db_connection() as conn:
+
+                with conn.cursor() as cur:
+
+                    cur.execute(
+
+                        "INSERT INTO evaluation_results (tenant_id, result_json, risk_score) VALUES (%s, %s, %s)",
+
+                        (
+
+                            db_tenant_id,
+
+                            json.dumps({
+
+                                "tenant_id": str(db_tenant_id),
+
+                                "unique_rules_violated": len(enriched_violations),
+
+                                "total_violation_occurrences": sum(v.get('occurrence_count', 1) for v in enriched_violations),
+
+                                "risk_score": score['score'],
+
+                                "risk_tier": score['tier'],
+
+                                "violations": [v.dict() for v in violations],
+
+                                "status": "success"
+
+                            }),
+
+                            float(score['score'])
+
+                        )
+
                     )
-                )
-                conn.commit()
-    except Exception as db_ex:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Evaluation results DB insert failed: {db_ex}"
+
+                    conn.commit()
+
+        except Exception as db_ex:
+
+            raise HTTPException(
+
+                status_code=500,
+
+                detail=f"Evaluation results DB insert failed: {db_ex}"
+
+            )
+
+        # ── Step 12: Return response ──
+
+        return AnalyzeResponse(
+
+            tenant_id                   = str(db_tenant_id),
+
+            unique_rules_violated       = len(enriched_violations),
+
+            total_violation_occurrences = sum(v.get('occurrence_count', 1) for v in enriched_violations),
+
+            risk_score                  = score['score'],
+
+            risk_tier                   = score['tier'],
+
+            violations                  = violations,
+
+            status                      = "success"
+
         )
 
-    # ── Step 12: Return response ──
-    return AnalyzeResponse(
-        tenant_id                   = str(db_tenant_id),
-        unique_rules_violated       = len(enriched_violations),
-        total_violation_occurrences = sum(v.get('occurrence_count', 1) for v in enriched_violations),
-        risk_score                  = score['score'],
-        risk_tier                   = score['tier'],
-        violations                  = violations,
-        status                      = "success"
-    )
+    except json.JSONDecodeError:
 
-except json.JSONDecodeError:
-    raise HTTPException(
-        status_code=400,
-        detail="Invalid JSON in uploaded files. Make sure all 3 files are valid JSON."
-    )
+        raise HTTPException(
 
-except Exception as e:
-    raise HTTPException(
-        status_code=500,
-        detail=f"Upload analysis failed: {str(e)}"
-    )
+            status_code=400,
+
+            detail="Invalid JSON in uploaded files. Make sure all 3 files are valid JSON."
+
+        )
+
+    except Exception as e:
+
+        raise HTTPException(
+
+            status_code=500,
+
+            detail=f"Upload analysis failed: {str(e)}"
+
+        )
 # ```
 
 # Save the file.
