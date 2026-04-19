@@ -1,0 +1,18 @@
+{
+  "tenant_id": "tenant_a",
+  "company_name": "Acme Pvt Ltd",
+  "dpo_contact": "dpo@acme.com",
+  "grievance_endpoint_available": true,
+  "consent_flag": true,
+  "consented_purpose": "loan_processing",
+  "notice_provided": true,
+  "processing_purpose": "loan_processing",
+  "pii_encrypted": true,
+  "third_party_sharing": false,
+  "data_retention_policy": {
+    "retention_period_days": 365,
+    "auto_delete": false,
+    "purpose_limitation": "loan_processing"
+  },
+  "dsar_requests": []
+}

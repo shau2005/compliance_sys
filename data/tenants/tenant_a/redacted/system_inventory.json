@@ -3,7 +3,7 @@
     "collected_fields": 2,
     "required_fields": 2,
     "pii_encrypted": true,
-    "retention_expiry_date": "2027-01-15",
+    "retention_expiry_date": "2024-01-15",
     "data_retained": false,
     "purpose_completed": false,
     "age": 25,

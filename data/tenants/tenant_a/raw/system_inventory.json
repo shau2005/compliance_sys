@@ -1,0 +1,14 @@
+{
+  "tenant_id": "tenant_a",
+  "component_id": "COMP001",
+  "storage": "encrypted_db",
+  "pii_encrypted": true,
+  "access_control_enabled": true,
+  "audit_logging_enabled": true,
+  "age": 30,
+  "guardian_consent": false,
+  "data_retained": true,
+  "purpose_completed": true,
+  "erasure_requested": false,
+  "retention_expiry_date": "2024-01-01"
+}
