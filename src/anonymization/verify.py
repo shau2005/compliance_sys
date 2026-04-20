@@ -21,6 +21,7 @@ def verify_tenant_data(tenant_id: str) -> dict:
     - 10 tables hold data for tenant.
     - Exactly 1 row mapped into governance_config for the tenant.
     - No raw PII exists (no @ symbol exists in any text/varchar column query response for the tenant isolation).
+      Fixed for psycopg3 compliance by using POSITION() rather than literal LIKE '%@%'.
     - Foreign key integrity checks (e.g. customer_hash correctly links across customer_master and consent mappings).
     """
     results = {"passed": True, "checks": {}}
@@ -75,7 +76,8 @@ def verify_tenant_data(tenant_id: str) -> dict:
                     if not str_cols:
                         continue
                         
-                    query_parts = [f"{col} LIKE '%@%'" for col in str_cols]
+                    # Fix for psycopg v3: Replacing LIKE '%@%' with POSITION('@' IN ...) to avoid escaping issues
+                    query_parts = [f"POSITION('@' IN {col}) > 0" for col in str_cols]
                     where_clause = " OR ".join(query_parts)
                     
                     cur.execute(f"SELECT COUNT(*) FROM {t} WHERE tenant_id = %s AND ({where_clause})", (tenant_id,))

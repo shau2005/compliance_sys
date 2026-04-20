@@ -1,3 +1,274 @@
+import pandas as pd
+from typing import Dict, List, Union, Any
+from .hasher import hash_id
+
+# ═══════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
+
+def _truncate_to_date(value: Any) -> Union[str, None]:
+    """
+    Technique 2 — Timestamp Truncation
+    Evidence: ISO/IEC 20889:2018 Section 8.3
+    Truncates full timestamps to date only to mitigate precise re-identification.
+    """
+    if pd.isna(value):
+        return None
+    try:
+        # Convert to string and take first 10 chars (YYYY-MM-DD)
+        # Handles both "2024-03-15 14:23:07" and datetime objects
+        vs = str(value).strip().split(" ")[0].split("T")[0]
+        if len(vs) == 10 and len(vs.split("-")) == 3:
+            return vs
+        # Fallback if unparseable
+        return str(value)
+    except:
+        return str(value)
+
+def _bucket_user_count(value: Any) -> Union[str, None]:
+    """
+    Technique 3 — Bucketing
+    Evidence: ISO/IEC 20889:2018 Section 8.3
+    Maps exact integer counts to user_count_band ENUM.
+    """
+    if pd.isna(value):
+        return None
+    try:
+        count = int(float(value)) # handles string floats like "10.0"
+        if count <= 0:
+            return None
+        if count <= 100:
+            return "minimal"
+        elif count <= 1000:
+            return "moderate"
+        elif count <= 10000:
+            return "large"
+        else:
+            return "critical"
+    except (ValueError, TypeError):
+        return None
+
+def _validate_enum(value: Any, valid_values: list, default: str, field_name: str) -> str:
+    """
+    Technique 5 — ENUM Validation and Mapping
+    Evidence: ISO/IEC 20889 — format preservation
+    Logs WARNING if invalid and maps to safest valid default.
+    """
+    if pd.isna(value):
+        return default
+        
+    val_str = str(value).strip()
+    if val_str in valid_values:
+        return val_str
+        
+    print(f"WARNING: [ENUM] {field_name}: invalid value '{val_str}' mapped to default '{default}'")
+    return default
+
+def _safe_bool(value: Any) -> bool:
+    """
+    Safely converts varying boolean representations (NaN, TRUE, 1, "Yes") to Python bool.
+    """
+    if pd.isna(value):
+        return False
+    if isinstance(value, bool):
+        return value
+    val_str = str(value).strip().lower()
+    return val_str in ["true", "1", "yes", "y", "t"]
+
+def _hash_or_none(value: Any, tenant_id: str) -> Union[str, None]:
+    """
+    Applies Technique 1 (HMAC-SHA256 Tokenization) safely, returning None for missing values.
+    """
+    if pd.isna(value):
+        return None
+    return hash_id(str(value), tenant_id)
+
+# ═══════════════════════════════════════════════════════════════
+# PER-TABLE ANONYMIZERS
+# ═══════════════════════════════════════════════════════════════
+
+def _anonymize_governance_config(df: pd.DataFrame, tenant_id: str) -> dict:
+    row = df.iloc[0]
+    return {
+        "tenant_id": tenant_id, # Gate 1
+        "tenant_name": str(row["tenant_name"]) if not pd.isna(row["tenant_name"]) else "Unknown", # Gate 1
+        "grievance_endpoint_available": _safe_bool(row.get("grievance_endpoint_available")), # Gate 2
+        "dpo_assigned": _safe_bool(row.get("dpo_assigned")), # Gate 2
+        "audit_frequency_days": int(row["audit_frequency_days"]) if pd.notna(row.get("audit_frequency_days")) else 90, # Gate 3
+        "last_audit_date": _truncate_to_date(row.get("last_audit_date")), # Gate 2, Technique 2
+        "risk_level": _validate_enum(row.get("risk_level"), ["LOW", "MEDIUM", "HIGH", "CRITICAL"], "MEDIUM", "risk_level") # Gate 2, Technique 5
+    }
+
+def _anonymize_customer_master(df: pd.DataFrame, tenant_id: str) -> dict:
+    row = df.iloc[0]
+    return {
+        "customer_hash": hash_id(str(row["customer_id"]), tenant_id), # Gate 1, Technique 1
+        "tenant_id": tenant_id, # Gate 1
+        "is_minor": _safe_bool(row.get("is_minor")), # Gate 2
+        "data_principal_type": _validate_enum(row.get("data_principal_type"), ["individual", "minor", "NRI", "OCI", "PIO"], "individual", "data_principal_type"), # Gate 3, Technique 5
+        "account_status": _validate_enum(row.get("account_status"), ["active", "dormant", "closed"], "active", "account_status"), # Gate 2, Technique 5
+        "kyc_status": _validate_enum(row.get("kyc_status"), ["verified", "pending", "expired", "rejected"], "pending", "kyc_status"), # Gate 2, Technique 5
+        "country": str(row["country"]) if pd.notna(row.get("country")) else "IN", # Gate 2
+        "created_at": _truncate_to_date(row.get("created_at")) # Gate 2, Technique 2
+    }
+
+def _anonymize_consent_records(df: pd.DataFrame, tenant_id: str) -> dict:
+    row = df.iloc[0]
+    return {
+        "consent_hash": hash_id(str(row["consent_id"]), tenant_id), # Gate 1, Technique 1
+        "customer_hash": hash_id(str(row["customer_id"]), tenant_id), # Gate 1, Technique 1
+        "tenant_id": tenant_id, # Gate 1
+        "consent_status": _validate_enum(row.get("consent_status"), ["active", "expired", "revoked", "withdrawn", "granted"], "expired", "consent_status"), # Gate 2, Technique 5
+        "consent_date": _truncate_to_date(row.get("consent_date")), # Gate 2, Technique 2
+        "expiry_date": _truncate_to_date(row.get("expiry_date")), # Gate 2, Technique 2
+        "consented_purpose": _validate_enum(row.get("consented_purpose"), ["loan_processing", "emi_collection", "kyc_verification", "credit_check", "marketing", "account_management", "fraud_detection", "data_enrichment"], "account_management", "consented_purpose"), # Gate 2, Technique 5
+        "consent_version": str(row["consent_version"]) if pd.notna(row.get("consent_version")) else "v1.0", # Gate 3
+        "notice_provided": _safe_bool(row.get("notice_provided")), # Gate 2
+        "is_bundled": _safe_bool(row.get("is_bundled")), # Gate 2
+        "consent_channel": _validate_enum(row.get("consent_channel"), ["app", "web", "branch", "implicit", "pre_ticked"], "app", "consent_channel"), # Gate 3, Technique 5
+        "guardian_consent_hash": _hash_or_none(row.get("guardian_consent_id"), tenant_id) # Gate 2, Technique 1
+    }
+
+def _anonymize_transaction_events(df: pd.DataFrame, tenant_id: str) -> List[dict]:
+    return [{
+        "event_hash": hash_id(str(row["event_id"]), tenant_id), # Gate 1, Technique 1
+        "customer_hash": hash_id(str(row["customer_id"]), tenant_id), # Gate 1, Technique 1
+        "tenant_id": tenant_id, # Gate 1
+        "consent_hash": _hash_or_none(row.get("consent_id"), tenant_id), # Gate 1, Technique 1
+        "event_type": _validate_enum(row.get("event_type"), ["credit_check", "loan_disbursal", "emi_collection", "kyc_verification", "marketing_push", "data_enrichment", "account_update", "fraud_check"], "account_update", "event_type"), # Gate 2, Technique 5
+        "processing_purpose": _validate_enum(row.get("processing_purpose"), ["loan_processing", "emi_collection", "kyc_verification", "credit_check", "marketing", "account_management", "fraud_detection", "data_enrichment"], "account_management", "processing_purpose"), # Gate 2, Technique 5
+        "event_date": _truncate_to_date(row.get("event_date")), # Gate 2, Technique 2
+        "shared_with_third_party": _safe_bool(row.get("shared_with_third_party")), # Gate 2
+        "third_party_hash": _hash_or_none(row.get("third_party_id"), tenant_id), # Gate 2, Technique 1
+        "is_cross_border": _safe_bool(row.get("is_cross_border")), # Gate 2
+        "transfer_country": str(row["transfer_country"]) if pd.notna(row.get("transfer_country")) else None # Gate 3
+    } for _, row in df.iterrows()]
+
+def _anonymize_access_logs(df: pd.DataFrame, tenant_id: str) -> List[dict]:
+    return [{
+        "access_hash": hash_id(str(row["access_id"]), tenant_id), # Gate 1, Technique 1
+        "customer_hash": hash_id(str(row["customer_id"]), tenant_id), # Gate 1, Technique 1
+        "tenant_id": tenant_id, # Gate 1
+        "employee_hash": hash_id(str(row["employee_id"]), tenant_id), # Gate 1, Technique 1
+        "employee_role": _validate_enum(row.get("employee_role"), ["collections_agent", "underwriter", "customer_support", "data_analyst", "compliance_officer", "engineer", "manager"], "customer_support", "employee_role"), # Gate 2, Technique 5
+        "accessed_pii": _safe_bool(row.get("accessed_pii")), # Gate 2
+        "pii_fields_accessed": str(row["pii_fields_accessed"]) if pd.notna(row.get("pii_fields_accessed")) else None, # Gate 2
+        "access_reason": _validate_enum(row.get("access_reason"), ["loan_review", "kyc_check", "fraud_investigation", "support_query", "data_export"], "support_query", "access_reason"), # Gate 2, Technique 5
+        "access_outcome": _validate_enum(row.get("access_outcome"), ["granted", "denied"], "denied", "access_outcome"), # Gate 2, Technique 5
+        "data_volume_accessed": _validate_enum(row.get("data_volume_accessed"), ["low", "medium", "high", "bulk"], "low", "data_volume_accessed"), # Gate 2, Technique 5
+        "access_date": _truncate_to_date(row.get("access_date")) # Gate 2, Technique 2
+    } for _, row in df.iterrows()]
+
+def _anonymize_data_lifecycle(df: pd.DataFrame, tenant_id: str) -> dict:
+    row = df.iloc[0]
+    return {
+        "lifecycle_hash": hash_id(str(row["lifecycle_id"]), tenant_id), # Gate 1, Technique 1
+        "customer_hash": hash_id(str(row["customer_id"]), tenant_id), # Gate 1, Technique 1
+        "tenant_id": tenant_id, # Gate 1
+        "data_category": _validate_enum(row.get("data_category"), ["kyc_documents", "transaction_history", "credit_score", "contact_info", "device_info"], "kyc_documents", "data_category"), # Gate 2, Technique 5
+        "retention_expiry_date": _truncate_to_date(row.get("retention_expiry_date")), # Gate 2, Technique 2
+        "retention_status": _validate_enum(row.get("retention_status"), ["active", "expired", "pending_deletion", "deleted"], "active", "retention_status"), # Gate 2, Technique 5
+        "purpose_completed": _safe_bool(row.get("purpose_completed")), # Gate 2
+        "erasure_requested": _safe_bool(row.get("erasure_requested")), # Gate 2
+        "erasure_date": _truncate_to_date(row.get("erasure_date")), # Gate 2, Technique 2
+        "legal_hold_flag": _safe_bool(row.get("legal_hold_flag")), # Gate 2
+        "erasure_request_source": _validate_enum(row.get("erasure_request_source"), ["user", "system"], "user", "erasure_request_source") # Gate 2, Technique 5
+    }
+
+def _anonymize_security_events(df: pd.DataFrame, tenant_id: str) -> List[dict]:
+    return [{
+        "security_hash": hash_id(str(row["security_id"]), tenant_id), # Gate 1, Technique 1
+        "customer_hash": hash_id(str(row["customer_id"]), tenant_id), # Gate 1, Technique 1
+        "tenant_id": tenant_id, # Gate 1
+        "pii_encrypted": _safe_bool(row.get("pii_encrypted")), # Gate 2
+        "encryption_type": _validate_enum(row.get("encryption_type"), ["AES-256", "AES-128", "RSA-2048", "none", "md5"], "none", "encryption_type"), # Gate 2, Technique 5
+        "breach_detected": _safe_bool(row.get("breach_detected")), # Gate 2
+        "breach_confirmed_date": _truncate_to_date(row.get("breach_confirmed_date")), # Gate 2, Technique 2
+        "notification_delay_hours": int(float(row["notification_delay_hours"])) if pd.notna(row.get("notification_delay_hours")) else None, # Gate 2
+        "affected_user_count": _bucket_user_count(row.get("affected_user_count")), # Gate 2, Technique 3
+        "data_categories_breached": str(row["data_categories_breached"]) if pd.notna(row.get("data_categories_breached")) else None, # Gate 2
+        "security_audit_flag": _safe_bool(row.get("security_audit_flag")) # Gate 2
+    } for _, row in df.iterrows()]
+
+def _anonymize_dsar_requests(df: pd.DataFrame, tenant_id: str) -> List[dict]:
+    return [{
+        "dsar_hash": hash_id(str(row["dsar_id"]), tenant_id), # Gate 1, Technique 1
+        "customer_hash": hash_id(str(row["customer_id"]), tenant_id), # Gate 1, Technique 1
+        "tenant_id": tenant_id, # Gate 1
+        "request_type": _validate_enum(row.get("request_type"), ["access", "correction", "erasure", "nomination"], "access", "request_type"), # Gate 2, Technique 5
+        "submitted_date": _truncate_to_date(row.get("submitted_date")), # Gate 2, Technique 2
+        "acknowledged_date": _truncate_to_date(row.get("acknowledged_date")), # Gate 2, Technique 2
+        "sla_due_date": _truncate_to_date(row.get("sla_due_date")), # Gate 2, Technique 2
+        "sla_breached": _safe_bool(row.get("sla_breached")), # Gate 2
+        "fulfilled_date": _truncate_to_date(row.get("fulfilled_date")), # Gate 2, Technique 2
+        "fulfillment_status": _validate_enum(row.get("fulfillment_status"), ["pending", "fulfilled", "partially_fulfilled", "rejected"], "pending", "fulfillment_status"), # Gate 2, Technique 5
+        "rejection_reason": str(row["rejection_reason"]) if pd.notna(row.get("rejection_reason")) else None # Gate 2
+    } for _, row in df.iterrows()]
+
+def _anonymize_system_inventory(df: pd.DataFrame, tenant_id: str) -> dict:
+    row = df.iloc[0]
+    return {
+        "system_hash": hash_id(str(row["system_id"]), tenant_id), # Gate 1, Technique 1
+        "tenant_id": tenant_id, # Gate 1
+        "system_name": str(row["system_name"]) if pd.notna(row.get("system_name")) else "Unknown", # Gate 1
+        "system_type": _validate_enum(row.get("system_type"), ["crm", "core_banking", "analytics", "kyc_platform", "payment_gateway", "data_warehouse"], "crm", "system_type"), # Gate 2, Technique 5
+        
+        # pii_stored: included for DPDP-007 (risk_agent).
+        # db_writer INSERT does not yet include this column.
+        # When db_writer.py is updated, this field will persist.
+        "pii_stored": _safe_bool(row.get("pii_stored")), # Gate 2
+        
+        "encryption_enabled": _safe_bool(row.get("encryption_enabled")), # Gate 2
+        "access_control_enabled": _safe_bool(row.get("access_control_enabled")), # Gate 2
+        "retention_policy_applied": _safe_bool(row.get("retention_policy_applied")), # Gate 2
+        "data_processor_type": _validate_enum(row.get("data_processor_type"), ["internal", "third_party_processor", "sub_processor"], "internal", "data_processor_type"), # Gate 2, Technique 5
+        "dpa_signed": _safe_bool(row.get("dpa_signed")), # Gate 2
+        "dpa_expiry_date": _truncate_to_date(row.get("dpa_expiry_date")) # Gate 2, Technique 2
+    }
+
+def _anonymize_policies(df: pd.DataFrame, tenant_id: str) -> dict:
+    row = df.iloc[0]
+    return {
+        "policy_hash": hash_id(str(row["policy_id"]), tenant_id), # Gate 1, Technique 1
+        "tenant_id": tenant_id, # Gate 1
+        "policy_type": _validate_enum(row.get("policy_type"), ["retention", "consent", "encryption", "access_control", "breach_notification"], "retention", "policy_type"), # Gate 2, Technique 5
+        "policy_name": str(row["policy_name"]) if pd.notna(row.get("policy_name")) else "Unknown", # Gate 1
+        "policy_value_numeric": int(float(row["policy_value_numeric"])) if pd.notna(row.get("policy_value_numeric")) else None, # Gate 2
+        "policy_value_unit": _validate_enum(row.get("policy_value_unit"), ["days", "months", "years", "hours", "count"], "days", "policy_value_unit"), # Gate 2, Technique 5
+        "effective_date": _truncate_to_date(row.get("effective_date")), # Gate 2, Technique 2
+        "last_updated": _truncate_to_date(row.get("last_updated")), # Gate 2, Technique 2
+        "is_active": _safe_bool(row.get("is_active")) # Gate 2
+    }
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN DISPATCHER
+# ═══════════════════════════════════════════════════════════════
+def anonymize_dataframe(df: pd.DataFrame, table_name: str, tenant_id: str) -> Union[dict, List[dict]]:
+    """
+    Applies anonymization techniques based on the specific table's schema 
+    and DPDP Act gate requirements. Routes to the correct table anonymizer.
+    """
+    if df is None or df.empty:
+        return [] if table_name not in ["governance_config", "system_inventory", "policies", "customer_master", "consent_records", "data_lifecycle"] else {}
+
+    # Route to table-specific anonymizer
+    dispatch = {
+        "governance_config": _anonymize_governance_config,
+        "customer_master": _anonymize_customer_master,
+        "consent_records": _anonymize_consent_records,
+        "transaction_events": _anonymize_transaction_events,
+        "access_logs": _anonymize_access_logs,
+        "data_lifecycle": _anonymize_data_lifecycle,
+        "security_events": _anonymize_security_events,
+        "dsar_requests": _anonymize_dsar_requests,
+        "system_inventory": _anonymize_system_inventory,
+        "policies": _anonymize_policies
+    }
+
+    if table_name not in dispatch:
+        raise ValueError(f"Unknown table name for anonymization: {table_name}")
+
+    return dispatch[table_name](df, tenant_id)
 import datetime
 from typing import Dict, List, Any
 from .hasher import hash_id
