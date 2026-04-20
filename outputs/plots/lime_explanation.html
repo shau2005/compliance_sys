@@ -1,0 +1,107 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LIME Explanation - DPDP Risk Model</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .prediction { background: #f0f0f0; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .feature { margin: 10px 0; padding: 10px; border-left: 4px solid #007bff; }
+        .positive { border-left-color: #28a745; }
+        .negative { border-left-color: #dc3545; }
+        .bar { width: 200px; height: 20px; background: #ddd; display: inline-block; }
+        .bar-fill { height: 100%; background: #007bff; }
+    </style>
+</head>
+<body>
+    <h1>LIME Explanation - Risk Model Prediction</h1>
+
+    <div class="prediction">
+        <h2>Prediction: <strong>COMPLIANT</strong></h2>
+        <p>Confidence: 50.00%</p>
+    </div>
+
+    <h3>Top Contributing Features</h3>
+
+    <div class="feature negative">
+        <strong>unique_rules_violated</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+    <div class="feature negative">
+        <strong>total_violation_occurrences</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+    <div class="feature negative">
+        <strong>critical_count</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+    <div class="feature negative">
+        <strong>high_count</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+    <div class="feature negative">
+        <strong>medium_count</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+    <div class="feature negative">
+        <strong>low_count</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+    <div class="feature negative">
+        <strong>dpdp-001_count</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+    <div class="feature negative">
+        <strong>dpdp-002_count</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+    <div class="feature negative">
+        <strong>dpdp-003_count</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+    <div class="feature negative">
+        <strong>dpdp-004_count</strong>
+        <div class="bar">
+            <div class="bar-fill" style="width: 0px;"></div>
+        </div>
+        <span>+0.0000</span>
+    </div>
+
+</body>
+</html>

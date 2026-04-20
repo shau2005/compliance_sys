@@ -1,0 +1,107 @@
+{
+  "type": "local_lime",
+  "instance_index": 0,
+  "prediction": {
+    "class": "COMPLIANT",
+    "confidence": 0.5,
+    "class_probabilities": {
+      "COMPLIANT": 0.5,
+      "HIGH": 0.5
+    }
+  },
+  "model": "linear_regression",
+  "num_samples": 1000,
+  "feature_contributions": [
+    {
+      "feature": "unique_rules_violated",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "total_violation_occurrences",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "critical_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "high_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "medium_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "low_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "dpdp-001_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "dpdp-002_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "dpdp-003_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "dpdp-004_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "dpdp-005_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "dpdp-006_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "dpdp-007_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "dpdp-008_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    },
+    {
+      "feature": "dpdp-009_count",
+      "coefficient": 0.0,
+      "abs_contribution": 0.0,
+      "direction": "negative"
+    }
+  ],
+  "explanation": "1. unique_rules_violated decreases risk (coef: 0.0000)\n2. total_violation_occurrences decreases risk (coef: 0.0000)\n3. critical_count decreases risk (coef: 0.0000)\n4. high_count decreases risk (coef: 0.0000)\n5. medium_count decreases risk (coef: 0.0000)"
+}

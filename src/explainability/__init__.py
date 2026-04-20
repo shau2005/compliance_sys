@@ -1,25 +1,27 @@
-"""
+﻿"""
 Explainability (XAI) module for DPDP Compliance System.
 
 Provides structured explanations for compliance violations without ML or external APIs.
 """
 
+from src.explainability.explanation import ViolationExplanation
 from src.explainability.service import (
-    get_explanation,
+    RULE_EXPLANATIONS,
+    explain_violation,
     enrich_violations,
-    add_explanation_to_violation,
-    list_available_violations,
-    Explanation,
-    VIOLATION_EXPLANATIONS,
-    DEFAULT_EXPLANATION,
+    generate_executive_summary,
+)
+from src.explainability.report_builder import (
+    build_compliance_report,
+    save_report,
 )
 
 __all__ = [
-    "get_explanation",
+    "ViolationExplanation",
+    "RULE_EXPLANATIONS",
+    "explain_violation",
     "enrich_violations",
-    "add_explanation_to_violation",
-    "list_available_violations",
-    "Explanation",
-    "VIOLATION_EXPLANATIONS",
-    "DEFAULT_EXPLANATION",
+    "generate_executive_summary",
+    "build_compliance_report",
+    "save_report",
 ]

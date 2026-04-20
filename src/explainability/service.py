@@ -1,596 +1,333 @@
-"""
-Explainability Service (XAI) for DPDP Compliance System
+﻿from typing import List, Dict, Any
+from .explanation import ViolationExplanation
 
-Provides structured explanations for compliance violations with:
-- Why violations are detected
-- Supporting evidence
-- Risk reasoning
-- Mitigation strategies
-
-All logic is rule-based and deterministic (no ML/external APIs).
-"""
-
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
-
-
-@dataclass
-class Explanation:
-    """Structured explanation for a compliance violation."""
-    why_detected: str
-    evidence: str
-    risk_reason: str
-    mitigation: str
-
-
-# ═══════════════════════════════════════════════════════════
-# EXPLANATION STORE: Dictionary-based knowledge base
-# ═══════════════════════════════════════════════════════════
-
-VIOLATION_EXPLANATIONS: Dict[str, Dict[str, str]] = {
-    # DPDP-001: Missing Consent Before Processing
+RULE_EXPLANATIONS = {
     "DPDP-001": {
-        "why_detected": (
-            "Personal data processing detected without valid prior consent. "
-            "The system found records where consent_flag is false or missing, "
-            "indicating data was processed without obtaining explicit permission from the data subject."
-        ),
-        "evidence": (
-            "The automated compliance check identified personal data fields being processed "
-            "while the consent_flag in the logs/policies indicates no valid consent was obtained. "
-            "This violates DPDP Section 6 which mandates explicit consent before any personal data processing."
-        ),
-        "risk_reason": (
-            "Processing personal data without consent is a direct violation of the core principle "
-            "of DPDP. This creates legal exposure, potential regulatory fines, reputational damage, "
-            "and loss of customer trust. Unauthorized data processing can also lead to data misuse."
-        ),
-        "mitigation": (
-            "1. Implement explicit consent collection before any data processing\n"
-            "2. Maintain verifiable consent records with timestamp and data subject identification\n"
-            "3. Add consent validation checks before processing personal data\n"
-            "4. Conduct regular consent audits to identify and remediate missing consents\n"
-            "5. Train teams on consent requirements and establish consent management policies"
-        ),
+        "rule_name": "Invalid or Expired Consent",
+        "what_happened": "Data processing was detected without a valid active consent record. The transaction occurred after consent had expired, been revoked, or under bundled consent terms.",
+        "why_violation": "DPDP Act Section 6(1) requires a Data Fiduciary to process personal data only for purposes for which the Data Principal has given free, specific, informed, and unambiguous consent. Processing under invalid or expired consent violates this mandate.",
+        "root_cause": "PROCESS_GAP",
+        "remediation": [
+            "Obtain fresh explicit consent from affected data principals before resuming processing",
+            "Implement a consent management system that blocks processing when consent_status is not active",
+            "Conduct an audit of all transaction_events joined to expired consent records and pause affected workflows"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "Consent status is expired, revoked, or withdrawn", "weight": 0.40},
+            "S2": {"description": "Transaction event date is after consent expiry date", "weight": 0.30},
+            "S3": {"description": "Processing purpose does not match consented purpose", "weight": 0.20},
+            "S4": {"description": "Consent was obtained as a bundled consent (not specific)", "weight": 0.10}
+        }
     },
-
-    # DPDP-002: Processing Beyond Stated Purpose
     "DPDP-002": {
-        "why_detected": (
-            "Data processing detected beyond the stated purpose. "
-            "The system found records where processing_purpose does not match consented_purpose, "
-            "indicating data is being used for purposes the data subject did not consent to."
-        ),
-        "evidence": (
-            "Compliance check identified discrepancies between what the data subject consented to "
-            "(consented_purpose field) and what the organization is actually processing the data for "
-            "(processing_purpose field). This violates the DPDP principle of Purpose Limitation."
-        ),
-        "risk_reason": (
-            "Purpose limitation is a fundamental DPDP requirement. Using personal data for purposes "
-            "beyond consent creates legal violations, erodes trust, and may enable unauthorized use of data. "
-            "It exposes the organization to regulatory action and potential penalties."
-        ),
-        "mitigation": (
-            "1. Update data collection to explicitly list all intended processing purposes\n"
-            "2. Obtain granular consent for each distinct purpose of processing\n"
-            "3. Implement controls to prevent out-of-scope processing\n"
-            "4. Maintain clear mapping between consented purposes and actual processing\n"
-            "5. Regularly audit processing activities for purpose drift\n"
-            "6. Establish clear data governance policies limiting purpose expansion"
-        ),
+        "rule_name": "Purpose Limitation",
+        "what_happened": "Personal data was processed for a purpose different from the one stated in the consent record, even where a technically active consent exists.",
+        "why_violation": "DPDP Act Section 4(1)(b) mandates that personal data be processed only for the specific lawful purpose for which it was collected. Processing for a different purpose — even under active consent — constitutes an unlawful act.",
+        "root_cause": "IMPLEMENTATION_GAP",
+        "remediation": [
+            "Update transaction processing workflows to enforce purpose matching against consent records at runtime",
+            "Review and correct all consent records where consented_purpose differs from current processing activity",
+            "Implement purpose limitation controls in your data processing pipeline"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "Processing purpose does not match the consented purpose", "weight": 0.70},
+            "S2": {"description": "Purpose mismatch exists even though consent status is currently active — a deliberate violation", "weight": 0.30}
+        }
     },
-
-    # DPDP-003: Retention Beyond Allowed Period
     "DPDP-003": {
-        "why_detected": (
-            "Personal data retention detected beyond the allowed period. "
-            "The system found records where retention_expiry_date is in the past, "
-            "indicating data is being retained longer than legally permitted."
-        ),
-        "evidence": (
-            "The automated check compared current date with retention_expiry_date in the system. "
-            "Records with expiry dates that have already passed indicate data is being retained "
-            "after its authorized retention period, violating DPDP Storage Limitation principle."
-        ),
-        "risk_reason": (
-            "Storing personal data beyond the authorized period increases exposure risk, "
-            "potential for data misuse, and violates data security obligations. "
-            "Extended retention amplifies the impact of potential breaches and demonstrates "
-            "non-compliance with DPDP requirements for timely data deletion."
-        ),
-        "mitigation": (
-            "1. Establish explicit data retention schedules for each data category\n"
-            "2. Implement automated deletion processes to purge expired data\n"
-            "3. Create secure backup deletion procedures\n"
-            "4. Monitor and audit retention compliance regularly\n"
-            "5. Ensure logs capture deletion activities for audit trails\n"
-            "6. Review and document legitimate business reasons for any retention extensions"
-        ),
+        "rule_name": "Data Retention",
+        "what_happened": "Personal data is being retained beyond its approved retention period, or retained after its processing purpose has been completed.",
+        "why_violation": "DPDP Act Section 8(7) requires a Data Fiduciary to delete personal data as soon as it is reasonable to assume that the purpose for which it was collected is no longer being served.",
+        "root_cause": "TECHNICAL_GAP",
+        "remediation": [
+            "Implement automated data deletion triggers based on retention_expiry_date and purpose_completed flags",
+            "Review the data_lifecycle table and immediately schedule deletion for all records where expiry has passed",
+            "Update your data inventory policy to include mandatory retention period review every 90 days"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "Retention expiry date has passed", "weight": 0.50},
+            "S2": {"description": "Data is still in active or expired status despite expiry passing", "weight": 0.30},
+            "S3": {"description": "Purpose has been marked complete but data has not been deleted", "weight": 0.20}
+        }
     },
-
-    # DPDP-004: Data Shared Without Proper Authorization
     "DPDP-004": {
-        "why_detected": (
-            "Personal data sharing detected without proper authorization or recipient verification. "
-            "The system found records where data_shared flags data disclosure to recipients "
-            "without documented authorization or legitimate purpose."
-        ),
-        "evidence": (
-            "Compliance check identified data sharing activities where either: "
-            "(1) No authorization exists, or (2) The recipient is not in the approved recipients list. "
-            "This indicates potential unauthorized disclosure violating DPDP principles."
-        ),
-        "risk_reason": (
-            "Unauthorized data sharing creates direct privacy violations, potential data breaches, "
-            "and loss of data control. It exposes the organization to regulatory penalties and "
-            "loss of customer trust. Uncontrolled recipient access increases data misuse risks."
-        ),
-        "mitigation": (
-            "1. Maintain explicit approved recipient lists for each data category\n"
-            "2. Require documented authorization before any data sharing\n"
-            "3. Implement sharing controls and audit trails\n"
-            "4. Conduct recipient security assessments before sharing\n"
-            "5. Define clear data sharing agreements with recipients\n"
-            "6. Monitor sharing activities against authorized recipients regularly"
-        ),
+        "rule_name": "Notice Requirements",
+        "what_happened": "Consent was collected without providing the required notice to the Data Principal, or through a channel that implies implicit or pre-ticked consent.",
+        "why_violation": "DPDP Act Section 5 requires that before seeking consent, the Data Fiduciary must give a clear notice describing the personal data to be processed and the purpose. Consent without notice is invalid.",
+        "root_cause": "PROCESS_GAP",
+        "remediation": [
+            "Update all consent collection flows to display a layered notice before the consent request",
+            "Review and re-collect consent from all data principals where notice_provided is false",
+            "Implement a consent audit trail that captures notice delivery confirmation alongside consent capture"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "Notice was not provided before consent was collected", "weight": 0.80},
+            "S2": {"description": "Consent was collected through an implicit or pre-ticked channel", "weight": 0.20}
+        }
     },
-
-    # DPDP-005: Insufficient Security Controls
     "DPDP-005": {
-        "why_detected": (
-            "Inadequate security controls detected for personal data protection. "
-            "The system identified missing or weak security measures in data handling processes."
-        ),
-        "evidence": (
-            "Compliance check evaluated system inventory against DPDP security requirements "
-            "and found gaps in encryption, access controls, monitoring, or other protective measures. "
-            "This indicates insufficient technical and organizational measures as required by DPDP."
-        ),
-        "risk_reason": (
-            "Weak security controls increase vulnerability to data breaches, unauthorized access, "
-            "and data loss. This violates DPDP security obligations and exposes personal data to harm. "
-            "Security failures can result in significant regulatory penalties and reputational damage."
-        ),
-        "mitigation": (
-            "1. Implement encryption for personal data at rest and in transit\n"
-            "2. Establish robust access controls with principle of least privilege\n"
-            "3. Deploy detection and monitoring systems for unauthorized access\n"
-            "4. Conduct regular security audits and vulnerability assessments\n"
-            "5. Implement incident response procedures\n"
-            "6. Provide security training to all personnel handling personal data"
-        ),
+        "rule_name": "Children's Data Processing",
+        "what_happened": "Processing was identified for a minor without a verified guardian consent record.",
+        "why_violation": "DPDP Act Section 9 prohibits processing personal data of children without verifiable consent from their parent or guardian. This is a CRITICAL severity obligation with a maximum penalty of ₹200 crore.",
+        "root_cause": "GOVERNANCE_GAP",
+        "remediation": [
+            "Implement age verification at account creation and flag all minor accounts immediately",
+            "Obtain and record guardian consent for all existing minor accounts before resuming data processing",
+            "Restrict all data processing on minor accounts until guardian consent is confirmed and recorded"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "Customer is identified as a minor", "weight": 0.50},
+            "S2": {"description": "No guardian consent hash is recorded for this customer", "weight": 0.50}
+        }
     },
-
-    # DPDP-006: Unauthorized Third Party Data Sharing
     "DPDP-006": {
-        "why_detected": (
-            "Personal data is being shared with third parties without explicit consent. "
-            "The system detected data marked as shared with third parties (shared_with_third_party=true), "
-            "but no corresponding consent for sharing with third parties was recorded (consent_for_sharing=false)."
-        ),
-        "evidence": (
-            "Compliance check found records where shared_with_third_party is True but "
-            "consent_for_sharing is False. This indicates unauthorized third-party data sharing "
-            "that violates DPDP's requirement for explicit consent before sharing personal data with "
-            "external entities."
-        ),
-        "risk_reason": (
-            "Sharing personal data with third parties without explicit consent violates fundamental DPDP "
-            "principles and data subject rights. It exposes individuals' data to unauthorized recipients "
-            "without their knowledge or agreement. This creates significant compliance and privacy risks."
-        ),
-        "mitigation": (
-            "1. Review all third-party data sharing arrangements\n"
-            "2. Obtain explicit consent from data subjects before sharing with any third parties\n"
-            "3. Implement consent tracking and management systems\n"
-            "4. Define and communicate data sharing purposes to data subjects\n"
-            "5. Establish data processing agreements with all third parties\n"
-            "6. Document justification for any necessary data sharing"
-        ),
+        "rule_name": "Third-Party & Cross-Border Sharing",
+        "what_happened": "Personal data was shared with a third party without a valid active consent, or was involved in a cross-border transfer.",
+        "why_violation": "DPDP Act Section 6(1) requires explicit consent before sharing data with third parties. Cross-border transfers introduce additional regulatory exposure under DPDP Rules.",
+        "root_cause": "PROCESS_GAP",
+        "remediation": [
+            "Review all third-party data sharing agreements and ensure explicit consent covers the sharing purpose",
+            "Implement a data sharing approval gate that validates consent_status = active before any third-party transfer",
+            "Audit all cross-border transfers and assess compliance with DPDP Rules on significant data fiduciaries"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "Data was shared with a third party", "weight": 0.40},
+            "S2": {"description": "Third party share occurred without active consent", "weight": 0.40},
+            "S3": {"description": "Data was transferred cross-border", "weight": 0.20}
+        }
     },
-
-    # DPDP-007: Missing Data Minimization (Over-Collection)
     "DPDP-007": {
-        "why_detected": (
-            "Data minimization violation detected: more data fields are being collected than required. "
-            "The system found that collected_fields exceeds required_fields, indicating the organization "
-            "is collecting more personal data than is actually necessary."
-        ),
-        "evidence": (
-            "Compliance check compared collected_fields against required_fields and found that "
-            "more data is being collected than is actually needed. This violates DPDP's data minimization "
-            "principle (Section 4) which requires collecting only the minimum personal data necessary "
-            "for the stated purpose."
-        ),
-        "risk_reason": (
-            "Over-collecting personal data violates the data minimization principle and increases "
-            "privacy risks for data subjects. Unnecessary data collection expands the scope of data "
-            "processing, increases storage and security risks, and limits the organization's ability to "
-            "control the extent of data handling."
-        ),
-        "mitigation": (
-            "1. Conduct data mapping to identify all collected fields\n"
-            "2. Determine minimum fields required for each processing purpose\n"
-            "3. Remove collection of unnecessary fields from forms and systems\n"
-            "4. Implement field-level access controls to restrict collection\n"
-            "5. Review and update data collection processes and requirements\n"
-            "6. Document justification for any additional fields beyond the minimum"
-        ),
+        "rule_name": "Data Processor Agreements",
+        "what_happened": "PII is being stored in a system without a signed Data Processing Agreement, indicating potential data minimization or contractual control failures.",
+        "why_violation": "DPDP Act Section 4(1)(c) requires that only the minimum necessary personal data be processed. Third-party processors without signed DPAs expose the Data Fiduciary to direct liability.",
+        "root_cause": "GOVERNANCE_GAP",
+        "remediation": [
+            "Conduct a data minimization audit to identify and remove personal data fields not required for the stated purpose",
+            "Execute signed Data Processing Agreements with all third-party processors before any data sharing",
+            "Review system_inventory and classify each system's data retention requirement against its stated purpose"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "PII is stored in this system", "weight": 0.50},
+            "S2": {"description": "Processor is a third party and no DPA has been signed", "weight": 0.50}
+        }
     },
-
-    # DPDP-008: Sensitive Data Stored Without Encryption
     "DPDP-008": {
-        "why_detected": (
-            "Sensitive personal data (PII) detected stored without encryption. "
-            "The system found pii_encrypted flag is false, indicating sensitive data is stored "
-            "in plain text or unencrypted format, making it vulnerable to unauthorized access."
-        ),
-        "evidence": (
-            "Compliance check identified sensitive personal data fields (email, phone, SSN, etc.) "
-            "stored without encryption. The pii_encrypted field indicates data is not protected "
-            "with cryptographic controls, violating DPDP security safeguards requirements."
-        ),
-        "risk_reason": (
-            "Unencrypted sensitive data significantly increases breach risk and potential data loss impact. "
-            "If systems are compromised, all sensitive data is immediately exposed. This is a critical "
-            "security vulnerability that violates DPDP and creates severe regulatory and legal exposure."
-        ),
-        "mitigation": (
-            "1. Implement encryption at rest for all sensitive personal data\n"
-            "2. Use strong encryption standards (AES-256 or equivalent)\n"
-            "3. Implement encryption in transit (TLS 1.2+) for data transmission\n"
-            "4. Manage encryption keys securely with HSM or key management service\n"
-            "5. Audit all sensitive data storage locations\n"
-            "6. Re-encrypt all existing unencrypted sensitive data"
-        ),
+        "rule_name": "Encryption and Security",
+        "what_happened": "Personal data is being processed or stored without encryption, leaving it exposed to unauthorized access or breach.",
+        "why_violation": "DPDP Act Section 8(5) requires Data Fiduciaries to implement reasonable security safeguards to prevent personal data breaches. Absence of encryption is a direct failure of this obligation.",
+        "root_cause": "TECHNICAL_GAP",
+        "remediation": [
+            "Immediately enable AES-256 encryption for all databases and storage systems containing PII",
+            "Audit all systems in system_inventory for encryption status and prioritize unencrypted systems",
+            "Conduct a security assessment and produce an encryption implementation roadmap within 30 days"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "PII is not encrypted", "weight": 0.70},
+            "S2": {"description": "Encryption type is set to none", "weight": 0.30}
+        }
     },
-
-    # DPDP-009: Missing Grievance Redress Mechanism
     "DPDP-009": {
-        "why_detected": (
-            "No grievance redress mechanism detected. The system found grievance_endpoint_available "
-            "is false, indicating data subjects have no way to file complaints or grievances about "
-            "data processing activities."
-        ),
-        "evidence": (
-            "Compliance check found that the organization lacks a documented grievance redress "
-            "process or endpoint for data subjects to lodge complaints. This violates DPDP Section 8 "
-            "which requires organizations to establish mechanisms for grievance resolution."
-        ),
-        "risk_reason": (
-            "Without grievance mechanisms, data subjects cannot report violations or seek remedies. "
-            "This indicates lack of accountability and violates fundamental DPDP requirements for "
-            "data subject rights. May result in regulatory sanctions and loss of customer trust."
-        ),
-        "mitigation": (
-            "1. Establish documented grievance redress policy and procedures\n"
-            "2. Create publicly accessible grievance filing mechanism (email, website, phone)\n"
-            "3. Define clear timelines for grievance acknowledgment and resolution\n"
-            "4. Assign accountability for grievance handling\n"
-            "5. Maintain records of all grievances and resolutions\n"
-            "6. Regularly review and improve grievance handling processes"
-        ),
+        "rule_name": "Grievance Mechanism",
+        "what_happened": "The organization does not have a functioning grievance mechanism available for Data Principals to raise complaints.",
+        "why_violation": "DPDP Act Section 13 requires every Data Fiduciary to publish a contact for a Data Protection Officer or Grievance Officer and ensure complaints can be lodged and responded to.",
+        "root_cause": "GOVERNANCE_GAP",
+        "remediation": [
+            "Appoint a named Grievance Officer and publish their contact details on your website and in your privacy notice immediately",
+            "Establish a formal grievance intake and response workflow with SLA tracking",
+            "Set grievance_endpoint_available to true in your governance config once the mechanism is live"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "Grievance endpoint is not available", "weight": 1.00}
+        }
     },
-
-    # DPDP-010: Failure to Honor Data Erasure Request
     "DPDP-010": {
-        "why_detected": (
-            "Data erasure request not honored. The system found erasure_requested is true but "
-            "data_deleted is false, indicating a data subject requested deletion but data was not removed "
-            "from systems, violating the right to be forgotten."
-        ),
-        "evidence": (
-            "Compliance check identified processing logs where data erasure was explicitly requested "
-            "but the data remains in the system. This is a direct violation of DPDP Section 10 (Right to Erasure) "
-            "which mandates timely deletion of personal data upon request."
-        ),
-        "risk_reason": (
-            "Failure to honor erasure requests is a critical compliance violation that exposes retained data "
-            "to unauthorized use and breach risks. This creates legal liability, regulatory penalties, and "
-            "may result in mandatory deletion orders or suspension of processing rights."
-        ),
-        "mitigation": (
-            "1. Implement automated erasure workflows triggered by erasure requests\n"
-            "2. Define SLA for erasure (typically 15-30 days from request)\n"
-            "3. Ensure deletion from primary storage, backups, and archives\n"
-            "4. Maintain audit trail of all erasure operations\n"
-            "5. Verify erasure completion before notifying data subject\n"
-            "6. Establish monitoring to detect re-appearance of erased data"
-        ),
+        "rule_name": "Data Subject Rights (Erasure)",
+        "what_happened": "An erasure request submitted by a Data Principal has not been fulfilled within the SLA period or remains in pending status.",
+        "why_violation": "DPDP Act Section 12(a) grants Data Principals the right to erasure of their personal data. Failure to honor this right within the prescribed SLA is a direct statutory violation.",
+        "root_cause": "PROCESS_GAP",
+        "remediation": [
+            "Implement an automated DSAR workflow with SLA countdown tracking and escalation alerts",
+            "Assign a responsible team to process all pending erasure requests within 24 hours",
+            "Conduct a review of all dsar_requests where sla_breached is true and provide a remediation timeline to the Board"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "The SLA for this erasure request has been breached", "weight": 0.60},
+            "S2": {"description": "The erasure request is still in pending status", "weight": 0.40}
+        }
     },
-
-    # DPDP-011: Excess Data Retention Without Purpose
     "DPDP-011": {
-        "why_detected": (
-            "Data retained beyond processing purpose completion. The system found purpose_completed is true "
-            "but data_retained is still true, indicating data is kept after the original purpose is fulfilled."
-        ),
-        "evidence": (
-            "Compliance check identified data that continues to be retained even though the processing purpose "
-            "(e.g., transaction completion, complaint resolution) has been achieved. DPDP Section 4 requires "
-            "deletion or anonymization when the purpose is complete."
-        ),
-        "risk_reason": (
-            "Unnecessary retention increases breach exposure and violates storage limitation principles. "
-            "The longer data is retained, the higher the risk of unauthorized use, accidental exposure, or loss. "
-            "This violates DPDP and regulatory requirements."
-        ),
-        "mitigation": (
-            "1. Define explicit retention periods for each data category\n"
-            "2. Implement automated deletion based on purpose completion\n"
-            "3. Review and classify data retention needs\n"
-            "4. Establish retention schedules and stick to them\n"
-            "5. Implement monitoring to identify over-retained data\n"
-            "6. Securely delete or anonymize data when purpose complete"
-        ),
+        "rule_name": "Purpose Completion",
+        "what_happened": "Personal data is being retained even though the processing purpose has been completed and no deletion has been initiated.",
+        "why_violation": "DPDP Act Section 8(7)(a) requires that personal data not be retained beyond the period necessary for the purpose for which it was processed.",
+        "root_cause": "TECHNICAL_GAP",
+        "remediation": [
+            "Deploy automated retention management that triggers deletion when purpose_completed = true",
+            "Run an immediate purge job on all data_lifecycle records where purpose_completed is true and status is not deleted or pending_deletion",
+            "Update your data lifecycle policy to include a mandatory deletion SLA after purpose completion"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "Processing purpose has been marked as completed", "weight": 0.50},
+            "S2": {"description": "Data has not been deleted or queued for deletion despite purpose completion", "weight": 0.50}
+        }
     },
-
-    # DPDP-012: Missing Audit Logs for Data Access
     "DPDP-012": {
-        "why_detected": (
-            "Data access logs not available. The system found access_log_available is false, indicating "
-            "data access and processing are occurring without audit trail documentation."
-        ),
-        "evidence": (
-            "Compliance check found that data is being accessed and processed without corresponding audit logs "
-            "or access records. DPDP Section 8 requires maintaining records of who accesses what data and when, "
-            "to ensure accountability and enable breach investigation."
-        ),
-        "risk_reason": (
-            "Without audit logs, unauthorized access cannot be detected or investigated. This violates "
-            "accountability requirements and prevents identification of breaches or misuse. Regulatory bodies "
-            "expect comprehensive logging for compliance verification."
-        ),
-        "mitigation": (
-            "1. Implement comprehensive audit logging for all data access\n"
-            "2. Log user ID, timestamp, action, and data accessed\n"
-            "3. Enable immutable audit logs to prevent tampering\n"
-            "4. Retain logs for at least 1-2 years\n"
-            "5. Implement real-time monitoring for suspicious access patterns\n"
-            "6. Review logs regularly for unauthorized access"
-        ),
+        "rule_name": "Audit Logging",
+        "what_happened": "Audit logging is either disabled, infrequent, or overdue, meaning processing activity cannot be verified or investigated.",
+        "why_violation": "DPDP Act Section 8(4) requires Data Fiduciaries to maintain a complete and accessible audit trail of all personal data processing activities.",
+        "root_cause": "GOVERNANCE_GAP",
+        "remediation": [
+            "Enable comprehensive audit logging on all systems processing personal data immediately",
+            "Implement a SIEM solution with automated alerting for unauthorized access events",
+            "Schedule mandatory audit reviews at the frequency set in governance_config and assign an owner"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "Audit frequency is set to more than 180 days", "weight": 0.50},
+            "S2": {"description": "No audit date is recorded", "weight": 0.30},
+            "S3": {"description": "Last audit date is older than the configured audit frequency", "weight": 0.20}
+        }
     },
-
-    # DPDP-013: Unauthorized Employee Access to PII
     "DPDP-013": {
-        "why_detected": (
-            "Unauthorized employee access to PII detected. The system found employees without approved roles "
-            "(admin, analyst) accessed personal data, violating principle of least privilege."
-        ),
-        "evidence": (
-            "Compliance check identified access logs showing employees with non-authorized roles accessing "
-            "PII. DPDP Section 8 requires organizations to implement role-based access controls and ensure "
-            "only authorized personnel can access personal data."
-        ),
-        "risk_reason": (
-            "Unauthorized access increases insider threat risk and data misuse potential. Employees without "
-            "legitimate business need having PII access creates both security and privacy violations. This "
-            "breaches trust and violates DPDP requirements."
-        ),
-        "mitigation": (
-            "1. Implement strict role-based access control (RBAC)\n"
-            "2. Define data access roles with clear responsibilities\n"
-            "3. Conduct access reviews to remove unnecessary permissions\n"
-            "4. Use principle of least privilege for all accounts\n"
-            "5. Implement multi-factor authentication for sensitive access\n"
-            "6. Provide security awareness training on data access policies"
-        ),
+        "rule_name": "Access Control (RBAC)",
+        "what_happened": "An employee without an authorized role accessed personal data, indicating a role-based access control failure.",
+        "why_violation": "DPDP Act Section 8(5) requires that access to personal data be restricted to personnel with a legitimate need. Unauthorized access is a breach of this security obligation.",
+        "root_cause": "HUMAN_ERROR",
+        "remediation": [
+            "Implement RBAC immediately to restrict PII access to compliance_officer, underwriter, and data_analyst roles only",
+            "Review all access_logs for unauthorized PII access and investigate each instance",
+            "Conduct a mandatory access control audit and revoke excess permissions within 48 hours"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "An employee accessed PII data", "weight": 0.40},
+            "S2": {"description": "The employee's role is not in the list of authorized PII access roles", "weight": 0.60}
+        }
     },
-
-    # DPDP-014: Delayed Breach Notification
     "DPDP-014": {
-        "why_detected": (
-            "Breach notification delayed beyond acceptable threshold. The system found breach_detected is true "
-            "but notification_delay exceeds 72 hours, violating DPDP breach reporting timelines."
-        ),
-        "evidence": (
-            "Compliance check identified security breaches where notification to data subjects or authorities "
-            "was delayed beyond 72 hours. DPDP Section 9 mandates that data breaches must be reported within "
-            "72 hours of discovery."
-        ),
-        "risk_reason": (
-            "Delayed breach notification violates DPDP and regulatory requirements, exposes affected individuals "
-            "to prolonged risk, and demonstrates lack of incident response procedures. This is a critical breach "
-            "of trust and can result in severe regulatory penalties."
-        ),
-        "mitigation": (
-            "1. Establish breach detection and incident response procedures\n"
-            "2. Define 72-hour SLA for breach notification\n"
-            "3. Create breach notification templates and communication plans\n"
-            "4. Implement automated alerting for security incidents\n"
-            "5. Conduct regular incident response drills\n"
-            "6. Document root cause and corrective actions for all breaches"
-        ),
-    },
+        "rule_name": "Breach Notification",
+        "what_happened": "A data breach was detected but notification to the authorities was delayed beyond the required 72-hour window, and/or a significant number of users were affected.",
+        "why_violation": "DPDP Act Section 8(6) requires the Data Fiduciary to notify the Data Protection Board of India of any personal data breach. Delayed notification is a direct violation of this obligation.",
+        "root_cause": "PROCESS_GAP",
+        "remediation": [
+            "Establish a documented breach response plan with a named incident response lead and a 72-hour notification SLA",
+            "Implement automated breach detection with immediate escalation to the DPO and legal team",
+            "Train all technical and security staff on breach identification, containment, and DPDP notification requirements"
+        ],
+        "signal_definitions": {
+            "S1": {"description": "A data breach was detected", "weight": 0.20},
+            "S2": {"description": "Notification delay exceeded 72 hours", "weight": 0.50},
+            "S3": {"description": "A large or critical number of users were affected by the breach", "weight": 0.30}
+        }
+    }
 }
 
+def explain_violation(v: Dict[str, Any], risk_contribution: float) -> ViolationExplanation:
+    rule_id = v.get("rule_id", "UNKNOWN")
+    template = RULE_EXPLANATIONS.get(rule_id, {
+        "rule_name": "Unknown Rule",
+        "what_happened": "An automated compliance check produced a finding for an unrecognized rule.",
+        "why_violation": "The relevant DPDP requirement could not be automatically determined.",
+        "root_cause": "TECHNICAL_GAP",
+        "remediation": ["Review the specific record to manually ascertain the required corrective action."],
+        "signal_definitions": {}
+    })
+    
+    signals_analysis = []
+    signals_fired = v.get("signals_fired", [])
+    signal_reasons = v.get("signal_reasons", [])
+    
+    top_contributing_signal = "—"
+    top_signal_weight = 0.0
+    
+    signal_defs = template.get("signal_definitions", {})
+    for signal_key, definition in signal_defs.items():
+        weight = definition["weight"]
+        fired = signal_key in signals_fired
+        reason = "—"
+        if fired:
+            try:
+                idx = signals_fired.index(signal_key)
+                reason = signal_reasons[idx] if idx < len(signal_reasons) else "—"
+            except ValueError:
+                pass
+                
+            if weight > top_signal_weight:
+                top_signal_weight = weight
+                top_contributing_signal = signal_key
 
-# ═══════════════════════════════════════════════════════════
-# DEFAULT EXPLANATION (Used when violation not in store)
-# ═══════════════════════════════════════════════════════════
+        signals_analysis.append({
+            "signal": signal_key,
+            "weight": weight,
+            "fired": fired,
+            "reason": reason
+        })
+        
+    return ViolationExplanation(
+        rule_id=rule_id,
+        rule_name=v.get("rule_name", template.get("rule_name", "Unknown")),
+        dpdp_section=v.get("dpdp_section", "Unknown"),
+        agent_name=v.get("agent_name", "Unknown"),
+        outcome=v.get("outcome", "UNKNOWN"),
+        severity=v.get("severity", "LOW"),
+        what_happened=template.get("what_happened", ""),
+        why_violation=template.get("why_violation", ""),
+        signals_analysis=signals_analysis,
+        top_contributing_signal=top_contributing_signal,
+        top_signal_weight=top_signal_weight,
+        penalty_exposure_crore=v.get("penalty_exposure_crore", 0),
+        root_cause=template.get("root_cause", "UNKNOWN"),
+        remediation_steps=template.get("remediation", []),
+        risk_contribution=risk_contribution
+    )
 
-DEFAULT_EXPLANATION: Dict[str, str] = {
-    "why_detected": (
-        "A compliance violation was detected during the automated rules evaluation. "
-        "The specific rule condition was met against the data records."
-    ),
-    "evidence": (
-        "The violation was identified through the rule-based compliance engine evaluation. "
-        "Please refer to the rule definition and data records for detailed evidence."
-    ),
-    "risk_reason": (
-        "This violation indicates a potential non-compliance with data privacy and protection regulations. "
-        "It requires attention to ensure regulatory compliance and protection of personal data."
-    ),
-    "mitigation": (
-        "1. Review the violation in detail with the compliance and data governance teams\n"
-        "2. Identify root cause of the violation\n"
-        "3. Develop remediation plan with specific corrective actions\n"
-        "4. Implement controls to prevent recurrence\n"
-        "5. Document all remediation efforts\n"
-        "6. Monitor for effectiveness of controls"
-    ),
-}
+def enrich_violations(violations: List[Dict[str, Any]], contributions: Dict[str, float]) -> List[ViolationExplanation]:
+    explanations = []
+    for v in violations:
+        rule_id = v.get("rule_id", "")
+        contribution = contributions.get(rule_id, 0.0)
+        explanations.append(explain_violation(v, contribution))
+    return explanations
 
-
-# ═══════════════════════════════════════════════════════════
-# PRIMARY FUNCTION: Get Explanation
-# ═══════════════════════════════════════════════════════════
-
-def get_explanation(violation_identifier: str) -> Dict[str, str]:
-    """
-    Retrieve explanation for a specific violation.
-
-    Args:
-        violation_identifier: Rule ID (e.g., "DPDP-001") or rule name.
-                             Automatically tries both formats.
-
-    Returns:
-        Dictionary with keys: why_detected, evidence, risk_reason, mitigation.
-        Returns default explanation if violation_identifier not found.
-
-    Example:
-        >>> explanation = get_explanation("DPDP-001")
-        >>> print(explanation["why_detected"])
-        >>> print(explanation["mitigation"])
-
-        >>> explanation = get_explanation("UNKNOWN-RULE")
-        >>> print(explanation["why_detected"])  # Returns default
-    """
-    # Try direct lookup first (e.g., DPDP-001)
-    if violation_identifier in VIOLATION_EXPLANATIONS:
-        return VIOLATION_EXPLANATIONS[violation_identifier]
-
-    # Try matching by rule_name in case rule_name was provided
-    for rule_id, explanation in VIOLATION_EXPLANATIONS.items():
-        # Extract the key from explanation dict for comparison
-        # (Could extend this to match by name if needed)
-        pass
-
-    # Return default explanation if not found
-    return DEFAULT_EXPLANATION
-
-
-# ═══════════════════════════════════════════════════════════
-# SECONDARY FUNCTION: Enrich Violations with Explanations
-# ═══════════════════════════════════════════════════════════
-
-def enrich_violations(violations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Attach structured explanations to each violation.
-
-    Transforms a flat violation list into enriched violations with full explanations.
-
-    Args:
-        violations: List of violation dictionaries, each containing at minimum:
-                   - rule_id (str, e.g., "DPDP-001")
-                   - rule_name (str)
-                   - severity (str)
-                   Additional fields like severity, risk_weight are preserved.
-
-    Returns:
-        List of enriched violation dictionaries including original fields plus:
-        - explanation: Dictionary with why_detected, evidence, risk_reason, mitigation
-
-    Example Input:
-        [
-            {
-                "rule_id": "DPDP-001",
-                "rule_name": "Missing Consent Before Processing",
-                "severity": "HIGH",
-                "occurrence_count": 5
-            },
-            {
-                "rule_id": "DPDP-003",
-                "rule_name": "Retention Beyond Allowed Period",
-                "severity": "HIGH",
-                "occurrence_count": 2
-            }
-        ]
-
-    Example Output:
-        [
-            {
-                "rule_id": "DPDP-001",
-                "rule_name": "Missing Consent Before Processing",
-                "severity": "HIGH",
-                "occurrence_count": 5,
-                "explanation": {
-                    "why_detected": "Personal data processing detected without valid prior consent...",
-                    "evidence": "The automated compliance check identified...",
-                    "risk_reason": "Processing personal data without consent...",
-                    "mitigation": "1. Implement explicit consent collection..."
-                }
-            },
-            ...
-        ]
-
-    Notes:
-        - Original violation fields are preserved
-        - Missing rule_id fields default to "UNKNOWN"
-        - If explanation not found, default explanation is used
-        - Modifications are non-destructive (original input is not modified)
-    """
-    enriched_violations: List[Dict[str, Any]] = []
-
-    for violation in violations:
-        # Create a copy to avoid modifying original
-        enriched = violation.copy()
-
-        # Extract rule_id, defaulting to UNKNOWN if not present
-        rule_id = violation.get("rule_id", "UNKNOWN")
-
-        # Get explanation for this violation
-        explanation = get_explanation(rule_id)
-
-        # Attach explanation to violation
-        enriched["explanation"] = explanation
-
-        enriched_violations.append(enriched)
-
-    return enriched_violations
-
-
-# ═══════════════════════════════════════════════════════════
-# UTILITY FUNCTION: Add explanation to single violation (Optional)
-# ═══════════════════════════════════════════════════════════
-
-def add_explanation_to_violation(violation: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Add explanation to a single violation dictionary.
-
-    Args:
-        violation: Single violation dict with rule_id
-
-    Returns:
-        Same violation dict with 'explanation' field added
-
-    Example:
-        >>> v = {"rule_id": "DPDP-001", "severity": "HIGH"}
-        >>> v_enriched = add_explanation_to_violation(v)
-        >>> print(v_enriched["explanation"]["why_detected"])
-    """
-    enriched = violation.copy()
-    rule_id = violation.get("rule_id", "UNKNOWN")
-    enriched["explanation"] = get_explanation(rule_id)
-    return enriched
-
-
-# ═══════════════════════════════════════════════════════════
-# UTILITY FUNCTION: List all available explanations (Optional)
-# ═══════════════════════════════════════════════════════════
-
-def list_available_violations() -> List[str]:
-    """
-    Get list of all violations with explanations in the store.
-
-    Returns:
-        List of rule IDs that have defined explanations
-
-    Example:
-        >>> violations = list_available_violations()
-        >>> print(violations)
-        ['DPDP-001', 'DPDP-002', 'DPDP-003', ...]
-    """
-    return list(VIOLATION_EXPLANATIONS.keys())
+def generate_executive_summary(
+    tenant_id: str, 
+    tenant_name: str, 
+    explanations: List[ViolationExplanation], 
+    risk_score: float, 
+    tier: str
+) -> str:
+    violation_exps = [e for e in explanations if e.outcome == "VIOLATION"]
+    n = len(violation_exps)
+    
+    if n == 0:
+        return f"{tenant_name} passed all DPDP compliance checks with a risk score of {risk_score}/100 ({tier})."
+        
+    unique_rules = {e.rule_id for e in violation_exps}
+    rules_count = len(unique_rules)
+    
+    # Sort for top contributors
+    sorted_viols = sorted(violation_exps, key=lambda x: x.risk_contribution, reverse=True)
+    top = sorted_viols[0] if sorted_viols else None
+    
+    # Deduplicated penalty summing
+    seen_rules = set()
+    total_penalty = 0
+    for e in violation_exps:
+        if e.rule_id not in seen_rules:
+            total_penalty += e.penalty_exposure_crore
+            seen_rules.add(e.rule_id)
+            
+    # Top 3 rule IDs by risk contribution
+    seen_top3 = set()
+    top_3 = []
+    for e in sorted_viols:
+        if e.rule_id not in seen_top3:
+            top_3.append(e.rule_id)
+            seen_top3.add(e.rule_id)
+        if len(top_3) == 3:
+            break
+            
+    return (
+        f"{tenant_name} achieved a DPDP compliance risk score of {risk_score}/100, classified as {tier}. "
+        f"{n} violations were detected across {rules_count} DPDP Act sections, with a combined maximum penalty exposure of "
+        f"₹{total_penalty} crore. The highest-risk finding is {top.rule_id} ({top.rule_name}) under Section "
+        f"{top.dpdp_section}, contributing {top.risk_contribution} to the overall risk score. "
+        f"Immediate remediation is recommended for: {', '.join(top_3)}."
+    )

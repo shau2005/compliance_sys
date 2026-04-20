@@ -1,0 +1,33 @@
+{
+  "report_id": "2eacb87a",
+  "generated_at": "2026-04-20T14:17:43.118465",
+  "tenant_id": "tenant_a",
+  "tenant_name": "tenant_a",
+  "executive_summary": "tenant_a passed all DPDP compliance checks with a risk score of 0.0/100 (COMPLIANT).",
+  "risk_assessment": {
+    "score": 0.0,
+    "tier": "COMPLIANT",
+    "tier_description": "No violations detected. All DPDP obligations appear to be met.",
+    "max_penalty_exposure_crore": 0,
+    "rules_violated": 0,
+    "rules_with_warnings": 0,
+    "rules_checked": 14
+  },
+  "violations": [],
+  "warnings": [],
+  "agent_breakdown": {
+    "regulation_agent": {
+      "violations": 0,
+      "warnings": 0
+    },
+    "audit_agent": {
+      "violations": 0,
+      "warnings": 0
+    },
+    "risk_agent": {
+      "violations": 0,
+      "warnings": 0
+    }
+  },
+  "remediation_priority": []
+}

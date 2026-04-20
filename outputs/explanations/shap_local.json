@@ -1,0 +1,87 @@
+{
+  "type": "local",
+  "instance_index": 0,
+  "prediction": {
+    "class": "COMPLIANT",
+    "confidence": 0.5,
+    "class_probabilities": {
+      "COMPLIANT": 0.5,
+      "HIGH": 0.5
+    }
+  },
+  "base_value": 0.0,
+  "feature_contributions": [
+    {
+      "rank": 1,
+      "feature": "unique_rules_violated",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    },
+    {
+      "rank": 2,
+      "feature": "total_violation_occurrences",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    },
+    {
+      "rank": 3,
+      "feature": "critical_count",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    },
+    {
+      "rank": 4,
+      "feature": "high_count",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    },
+    {
+      "rank": 5,
+      "feature": "medium_count",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    },
+    {
+      "rank": 6,
+      "feature": "low_count",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    },
+    {
+      "rank": 7,
+      "feature": "dpdp-001_count",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    },
+    {
+      "rank": 8,
+      "feature": "dpdp-002_count",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    },
+    {
+      "rank": 9,
+      "feature": "dpdp-003_count",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    },
+    {
+      "rank": 10,
+      "feature": "dpdp-004_count",
+      "value": 0.0,
+      "shap_value": 0.0,
+      "direction": "negative"
+    }
+  ],
+  "top_positive_features": [],
+  "top_negative_features": []
+}
