@@ -3,6 +3,7 @@
 import streamlit as st
 import requests
 import json
+import io
 
 
 # ── Report Display Function ───────────────────────────
@@ -123,123 +124,93 @@ st.title("⚖️ DPDP Compliance Engine")
 st.caption("AI-Powered FinTech Compliance & Regulatory Intelligence System")
 st.markdown("---")
 
-# ── Sidebar ──────────────────────────────────────────
-st.sidebar.title("Configuration")
-api_url = st.sidebar.text_input("API URL", value="http://localhost:8000")
+# ── Unknown Tenant Data Analysis ─────────────────────
+st.subheader("📤 Unknown Tenant Data")
+st.info("Upload 10 CSV files for an unseen tenant. The system will process and run full compliance check.")
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("**How to use:**")
-st.sidebar.markdown("1. Choose analysis mode")
-st.sidebar.markdown("2. Provide tenant data")
-st.sidebar.markdown("3. Click Run Compliance Check")
+# ── Tenant Name Input ────────────────────────────────
+tenant_name = st.text_input("🏢 Tenant Name", help="Enter the tenant name", placeholder="e.g., MyFinTech Inc")
 
-# ── Mode Selection ───────────────────────────────────
-mode = st.radio(
-    "Select Analysis Mode",
-    ["Known Tenant", "Upload New Files"],
-    horizontal=True
+# ── File Upload Fields ───────────────────────────────
+st.markdown("### 📁 Upload Required Files (10 CSV Files)")
+
+file_configs = [
+    ("governance_config", "🏛️ Governance Configuration", "Input governance configuration file"),
+    ("customer_master", "👥 Customer Master", "Input customer master file"),
+    ("consent_records", "✅ Consent Records", "Input consent records file"),
+    ("transaction_events", "💳 Transaction Events", "Input transaction events file"),
+    ("access_logs", "📝 Access Logs", "Input access logs file"),
+    ("data_lifecycle", "🔄 Data Lifecycle", "Input data lifecycle file"),
+    ("security_events", "🔒 Security Events", "Input security events file"),
+    ("dsar_requests", "🗂️ DSAR Requests", "Input DSAR requests file"),
+    ("system_inventory", "🗄️ System Inventory", "Input system inventory file"),
+    ("policies", "📋 Policies", "Input policies file"),
+]
+
+uploaded_files = {}
+
+# Create 5 rows with 2 columns each
+for i in range(0, len(file_configs), 2):
+    col1, col2 = st.columns(2)
+    
+    # First file in the pair
+    file_key, file_label, help_text = file_configs[i]
+    with col1:
+        uploaded_files[file_key] = st.file_uploader(
+            file_label,
+            type=["csv"],
+            help=help_text,
+            key=file_key
+        )
+    
+    # Second file in the pair (if exists)
+    if i + 1 < len(file_configs):
+        file_key, file_label, help_text = file_configs[i + 1]
+        with col2:
+            uploaded_files[file_key] = st.file_uploader(
+                file_label,
+                type=["csv"],
+                help=help_text,
+                key=file_key
+            )
+
+
+# ── Run Compliance Check Button ──────────────────────
+all_files_uploaded = (
+    tenant_name and 
+    all(uploaded_files[key] is not None for key in uploaded_files)
 )
 
-st.markdown("---")
+run = st.button(
+    "🔍 Run Compliance Check",
+    type="primary",
+    disabled=not all_files_uploaded
+)
 
-# ── MODE 1: Known Tenant ─────────────────────────────
-if mode == "Known Tenant":
-    st.subheader("📂 Known Tenant Analysis")
-
-    tenant_id = st.selectbox(
-        "Select Tenant",
-        ["tenant_a", "tenant_b"],
-        help="tenant_a = SafeFinance Ltd (Compliant)\n"
-             "tenant_b = RiskyPay Inc (Non-Compliant)"
-    )
-
-    run = st.button("🔍 Run Compliance Check", type="primary")
-
-    if run:
-        with st.spinner(f"Analyzing {tenant_id}..."):
-            try:
-                response = requests.post(
-                    f"{api_url}/analyze",
-                    json={"tenant_id": tenant_id}
-                )
-                data = response.json()
-            except Exception as e:
-                st.error(f"Could not connect to API: {str(e)}")
-                st.stop()
-
-        if response.status_code != 200:
-            st.error(f"API Error: {data.get('detail', 'Unknown error')}")
+if run:
+    with st.spinner(f"Analyzing {tenant_name}..."):
+        try:
+            tenant_id = tenant_name.strip()
+            
+            # Prepare files for submission
+            files_dict = {}
+            for file_key, uploaded_file in uploaded_files.items():
+                if uploaded_file is not None:
+                    files_dict[file_key] = (uploaded_file.name, uploaded_file.getvalue(), "text/csv")
+            
+            # Submit to API
+            response = requests.post(
+                "http://localhost:8000/analyze/upload",
+                files=files_dict,
+                data={"tenant_id": tenant_id, "tenant_name": tenant_name}
+            )
+            data = response.json()
+        except Exception as e:
+            st.error(f"Could not connect to API: {str(e)}")
             st.stop()
 
-        display_report(data)
+    if response.status_code != 200:
+        st.error(f"API Error: {data.get('detail', 'Unknown error')}")
+        st.stop()
 
-# ── MODE 2: Upload New Files ─────────────────────────
-else:
-    st.subheader("📤 Upload New Tenant Files")
-    st.info(
-        "Upload 3 JSON files for an unseen tenant. "
-        "The system will redact PII and run full compliance check."
-    )
-
-    company_name = st.text_input("🏢 Company Name", help="Enter the company name")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        policies_file = st.file_uploader(
-            "📋 policies.json",
-            type=["json"],
-            help="Company privacy policies and consent settings"
-        )
-
-    with col2:
-        logs_file = st.file_uploader(
-            "📝 logs.json",
-            type=["json"],
-            help="Access logs and activity records"
-        )
-
-    with col3:
-        inventory_file = st.file_uploader(
-            "🗄️ system_inventory.json",
-            type=["json"],
-            help="System components and data storage details"
-        )
-
-    run = st.button(
-        "🔍 Run Compliance Check",
-        type="primary",
-        disabled=not (policies_file and logs_file and inventory_file and company_name)
-    )
-
-    if run:
-        # Skip DB insert; use generated tenant ID directly
-        tenant_id = f"uploaded_{company_name.replace(' ', '_').lower()}"
-
-        with st.spinner("Analyzing uploaded files..."):
-            try:
-                response = requests.post(
-                    f"{api_url}/analyze/upload",
-                    files={
-                        "policies":  ("policies.json",
-                                      policies_file.getvalue(),
-                                      "application/json"),
-                        "logs":      ("logs.json",
-                                      logs_file.getvalue(),
-                                      "application/json"),
-                        "inventory": ("system_inventory.json",
-                                      inventory_file.getvalue(),
-                                      "application/json")
-                    },
-                    data={"tenant_id": tenant_id, "company_name": company_name}
-                )
-                data = response.json()
-            except Exception as e:
-                st.error(f"Could not connect to API: {str(e)}")
-                st.stop()
-
-        if response.status_code != 200:
-            st.error(f"API Error: {data.get('detail', 'Unknown error')}")
-            st.stop()
-
-        display_report(data)
+    display_report(data)

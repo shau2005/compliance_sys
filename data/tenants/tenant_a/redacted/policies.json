@@ -1,9 +1,0 @@
-{
-    "tenant_id": "tenant_a",
-    "consent_flag": true,
-    "notice_provided": true,
-    "processing_purpose": "loan_processing",
-    "consented_purpose": "loan_processing",
-    "pii_encrypted": true,
-    "grievance_endpoint_available": true
-}

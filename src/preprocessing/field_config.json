@@ -1,0 +1,555 @@
+{
+  "_meta": {
+    "description": "Feature selection configuration for DPDP Compliance Checker preprocessing pipeline.",
+    "gate_definitions": {
+      "LEGAL":  "Field mandated by a specific DPDP section or associated Indian regulation. Cannot be dropped.",
+      "LOGIC":  "Field required as input to agent detection logic. Dropping it breaks the agent reasoning chain.",
+      "GATE_3_CANDIDATE": "Field pending Gate 3 correlation analysis. Held through pilot run. Not yet decided.",
+      "DROP":   "Field failed all gates. No DPDP section, no agent logic, no ML utility. Excluded before redaction."
+    },
+    "action_definitions": {
+      "KEEP":          "Retain as-is. Non-PII categorical, boolean, or numeric field.",
+      "HASH":          "Replace with HMAC-SHA256 12-char digest keyed by (tenant_id + salt). Preserves FK joins.",
+      "TRUNCATE_DATE": "Retain date component only. Strip time-of-day — not needed for any compliance check.",
+      "BUCKET":        "Replace exact count with categorical band. Exact values unnecessary for agent logic.",
+      "DROP":          "Exclude entirely. Column will not appear in redacted dataset or database."
+    },
+    "gate3_status": "NOT_RUN",
+    "gate3_run_date": null,
+    "gate3_threshold": 0.15
+  },
+
+  "customer_master": {
+    "customer_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "customer_hash",
+      "reason": "Primary key — must remain joinable across all tables via HMAC. Direct ID never stored."
+    },
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Multi-tenant scoping key. Not a personal identifier."
+    },
+    "name": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "No DPDP section requires evaluating a customer name. No agent logic consumes it. High PII, zero compliance utility."
+    },
+    "dob": {
+      "gate": "LEGAL", "action": "DROP",
+      "reason": "is_minor is derived from dob and stored as a first-class boolean. Raw dob not needed once is_minor is set. DPDP S.9 requires the flag, not the raw date."
+    },
+    "age": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "Derived field. Computable from dob. Storing both creates inconsistency risk. is_minor boolean replaces all compliance uses."
+    },
+    "gender": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "No DPDP section requires evaluating gender. Sensitive attribute with zero detection utility at Level 1."
+    },
+    "email": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "Communication channel only. No compliance detection function. PII with no gate."
+    },
+    "phone": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "Communication channel only. Same as email."
+    },
+    "address": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "High-sensitivity PII with zero compliance detection utility. Not referenced by any rule."
+    },
+    "country": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Required for NRI/OCI/PIO classification and cross-border transfer rule branching. DPDP Chapter V."
+    },
+    "kyc_status": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "RBI prohibits processing for unverified customers. Expired KYC is a violation trigger."
+    },
+    "account_status": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Processing on closed accounts is a S.8(7) violation. Needed by Regulation Agent."
+    },
+    "is_minor": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.9 first-class flag. Minor accounts require guardian consent. Cannot be computed at query time once dob is dropped."
+    },
+    "data_principal_type": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "NRI/OCI/PIO type drives rule branching in Regulation Agent for cross-border checks."
+    },
+    "created_at": {
+      "gate": "LOGIC", "action": "TRUNCATE_DATE",
+      "reason": "Account age needed for temporal analysis. Time-of-day not required."
+    }
+  },
+
+  "consent_records": {
+    "consent_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "consent_hash",
+      "reason": "Primary key and FK in transaction_events. Must remain joinable via HMAC."
+    },
+    "customer_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "customer_hash",
+      "reason": "FK to customer_master. Hashed with same salt — joins preserved."
+    },
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Multi-tenant scoping."
+    },
+    "consent_status": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.6 — primary signal for consent validity check (DPDP-001 S1)."
+    },
+    "consent_timestamp": {
+      "gate": "LEGAL", "action": "TRUNCATE_DATE",
+      "redacted_name": "consent_date",
+      "reason": "Required to establish consent lifecycle timeline. Time-of-day stripped."
+    },
+    "expiry_timestamp": {
+      "gate": "LEGAL", "action": "TRUNCATE_DATE",
+      "redacted_name": "expiry_date",
+      "reason": "DPDP S.6(3) — stale consent detection requires expiry date (DPDP-001 S2)."
+    },
+    "withdrawal_timestamp": {
+      "gate": "LEGAL", "action": "TRUNCATE_DATE",
+      "redacted_name": "withdrawal_date",
+      "reason": "DPDP S.6(4) — withdrawal timestamp is the legal anchor for when processing must cease."
+    },
+    "consented_purpose": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.6(1) — compared against processing_purpose for purpose-limitation check (DPDP-001 S3, DPDP-002 S1)."
+    },
+    "consent_version": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Outdated consent version is a violation trigger (DPDP-002 S2). Policy changes may invalidate old consents."
+    },
+    "notice_provided": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.5 — notice before data collection is a legal requirement (DPDP-004 S1)."
+    },
+    "is_bundled": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.6(2) — bundled consent is explicitly void. Direct violation signal (DPDP-001 S4)."
+    },
+    "consent_channel": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Channel determines whether adequate notice could have been delivered (DPDP-004 S2)."
+    },
+    "guardian_consent_id": {
+      "gate": "LEGAL", "action": "HASH",
+      "redacted_name": "guardian_consent_hash",
+      "reason": "DPDP S.9 — absence of guardian consent for a minor is a critical violation (DPDP-005 S2)."
+    }
+  },
+
+  "transaction_events": {
+    "event_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "event_hash",
+      "reason": "Primary key for audit trail. Must be uniquely identifiable."
+    },
+    "customer_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "customer_hash",
+      "reason": "FK to customer_master."
+    },
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Multi-tenant scoping."
+    },
+    "consent_id": {
+      "gate": "LEGAL", "action": "HASH",
+      "redacted_name": "consent_hash",
+      "reason": "DPDP S.6 — links processing event to authorising consent. NULL value is itself a violation signal."
+    },
+    "event_type": {
+      "gate": "GATE_3_CANDIDATE", "action": "KEEP",
+      "reason": "Candidate: certain event types correlate with processing violations. Gate 3 pending."
+    },
+    "processing_purpose": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.4(1)(b) and S.6(1) — compared against consented_purpose for purpose-limitation check."
+    },
+    "timestamp": {
+      "gate": "LOGIC", "action": "TRUNCATE_DATE",
+      "redacted_name": "event_date",
+      "reason": "Temporal reasoning — was consent valid at time of processing. Date precision sufficient."
+    },
+    "shared_with_third_party": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.8(2) — third-party sharing without DPA is a direct violation (DPDP-006 S1)."
+    },
+    "third_party_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "third_party_hash",
+      "reason": "FK to system_inventory. Risk Agent uses this to verify DPA exists for receiving processor."
+    },
+    "is_cross_border": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP Chapter V — cross-border transfers trigger additional obligations (DPDP-015 S1)."
+    },
+    "transfer_country": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.16 — destination country evaluated against approved list (DPDP-015 S2)."
+    },
+    "amount": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "Financial metric. No DPDP compliance function. No gate applies."
+    },
+    "device_id": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "Fraud detection feature — no DPDP compliance function at Level 1. Also PII under DPDP."
+    },
+    "ip_address": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "Network forensics — no DPDP compliance function at Level 1. PII under DPDP S.2(t)."
+    }
+  },
+
+  "access_logs": {
+    "access_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "access_hash",
+      "reason": "Primary key for audit trail."
+    },
+    "customer_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "customer_hash",
+      "reason": "FK to customer_master."
+    },
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Multi-tenant scoping."
+    },
+    "employee_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "employee_hash",
+      "reason": "Hashed for privacy. Preserved for per-employee access pattern analysis."
+    },
+    "employee_role": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Primary input for unauthorised access detection. DPDP-013 S1."
+    },
+    "accessed_pii": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Boolean confirming PII was exposed in this event. DPDP-013 S2."
+    },
+    "pii_fields_accessed": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Proportionality check — was access scoped to the role's legitimate PII set."
+    },
+    "access_reason": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Validates that stated business reason is consistent with role. DPDP-013 logic."
+    },
+    "access_outcome": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Denied attempts are security signals. DPDP-013 S3."
+    },
+    "data_volume_accessed": {
+      "gate": "GATE_3_CANDIDATE", "action": "KEEP",
+      "reason": "Candidate: bulk access anomaly detection. Gate 3 pending."
+    },
+    "timestamp": {
+      "gate": "LOGIC", "action": "TRUNCATE_DATE",
+      "redacted_name": "access_date",
+      "reason": "After-hours and post-account-closure access detection requires date."
+    }
+  },
+
+  "data_lifecycle": {
+    "lifecycle_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "lifecycle_hash",
+      "reason": "Primary key."
+    },
+    "customer_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "customer_hash",
+      "reason": "FK to customer_master."
+    },
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Multi-tenant scoping."
+    },
+    "data_category": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "Different categories have different retention mandates (PMLA=5yr, IT Act=6yr). DPDP S.8(7)."
+    },
+    "retention_expiry_date": {
+      "gate": "LEGAL", "action": "TRUNCATE_DATE",
+      "reason": "DPDP S.8(7) primary retention violation input. DPDP-003 S1."
+    },
+    "retention_status": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "State machine for retention lifecycle. DPDP-003 S2, DPDP-010 S3."
+    },
+    "purpose_completed": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.8(7) — one of two deletion triggers. DPDP-011 S1."
+    },
+    "erasure_requested": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.13 rights check trigger. DPDP-010 S1."
+    },
+    "erasure_timestamp": {
+      "gate": "LEGAL", "action": "TRUNCATE_DATE",
+      "redacted_name": "erasure_date",
+      "reason": "SLA clock anchor for erasure request compliance."
+    },
+    "legal_hold_flag": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "Prevents false violation alerts for data legitimately under legal hold."
+    },
+    "erasure_request_source": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Distinguishes S.13 user-initiated requests from S.8(7) system-triggered deletion."
+    },
+    "data_retained": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "Ambiguous boolean replaced by retention_status ENUM. Redundant and inconsistency-prone."
+    },
+    "data_deleted": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "Redundant with retention_status = deleted."
+    }
+  },
+
+  "security_events": {
+    "security_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "security_hash",
+      "reason": "Primary key."
+    },
+    "customer_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "customer_hash",
+      "reason": "FK to customer_master."
+    },
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Multi-tenant scoping."
+    },
+    "pii_encrypted": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.8(4) minimum security safeguard check. DPDP-008 S1."
+    },
+    "encryption_type": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Algorithm adequacy check. AES-256 required minimum. DPDP-008 S3."
+    },
+    "breach_detected": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.8(6) notification obligation trigger. DPDP-014 S1."
+    },
+    "breach_timestamp": {
+      "gate": "LEGAL", "action": "TRUNCATE_DATE",
+      "redacted_name": "breach_confirmed_date",
+      "reason": "CERT-In notification clock starts at confirmation. DPDP-014 S3."
+    },
+    "notification_delay": {
+      "gate": "LEGAL", "action": "KEEP",
+      "redacted_name": "notification_delay_hours",
+      "reason": "Direct violation metric — exceeding 72h threshold is DPDP-014 S2. Exact value required."
+    },
+    "affected_user_count": {
+      "gate": "LEGAL", "action": "BUCKET",
+      "reason": "DPDP Schedule penalty scale computation. Bucketed: minimal/moderate/large/critical."
+    },
+    "data_categories_breached": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Breach severity classification. Aadhaar breach categorically more severe than email breach."
+    },
+    "security_audit_flag": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Foreseeable-and-preventable assessment. Aggravating factor under DPDP penalty schedule."
+    }
+  },
+
+  "dsar_requests": {
+    "dsar_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "dsar_hash",
+      "reason": "Primary key."
+    },
+    "customer_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "customer_hash",
+      "reason": "FK to customer_master."
+    },
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Multi-tenant scoping."
+    },
+    "request_type": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.11/12/13 — different rights have different SLA and obligation profiles."
+    },
+    "submitted_at": {
+      "gate": "LEGAL", "action": "TRUNCATE_DATE",
+      "redacted_name": "submitted_date",
+      "reason": "SLA clock starts here. DPDP-010 S2."
+    },
+    "acknowledged_at": {
+      "gate": "LOGIC", "action": "TRUNCATE_DATE",
+      "redacted_name": "acknowledged_date",
+      "reason": "Time-to-acknowledge is an operational compliance signal."
+    },
+    "sla_due_date": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "Computed as submitted_date + 30 days. Explicit field prevents re-computation errors."
+    },
+    "sla_breached": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "Primary violation flag for rights compliance. DPDP-010 S2."
+    },
+    "fulfilled_at": {
+      "gate": "LEGAL", "action": "TRUNCATE_DATE",
+      "redacted_name": "fulfilled_date",
+      "reason": "Used to compute whether fulfilment occurred before or after SLA."
+    },
+    "fulfillment_status": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "State of rights request. Stuck-in-pending is a systemic violation pattern."
+    },
+    "rejection_reason": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Audit Agent validates whether rejection reason is a legitimate ground under DPDP S.13(3)."
+    }
+  },
+
+  "governance_config": {
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Primary key. Anchor for all FK relationships."
+    },
+    "grievance_endpoint_available": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.14 direct compliance check. DPDP-009 S1."
+    },
+    "data_protection_officer_assigned": {
+      "gate": "LEGAL", "action": "KEEP",
+      "redacted_name": "dpo_assigned",
+      "reason": "DPDP S.10 SDF obligation. Governance gap signal. DPDP-009 S2."
+    },
+    "dpo_contact_email": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Masked to first char + domain. Reachability of grievance mechanism. DPDP-009 S3.",
+      "note": "Mask pattern: first_char + *** + @domain. Applied during redaction, not dropped."
+    },
+    "audit_frequency": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "String field — not machine-readable. Replaced by audit_frequency_days integer."
+    },
+    "audit_frequency_days": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Machine-readable audit cadence. DPDP-012 S1 — days since last audit vs this value."
+    },
+    "last_audit_date": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Required to compute audit overdue status. Without this audit_frequency_days has no reference."
+    },
+    "risk_level": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Tenant risk classification affects severity multiplier in risk scoring model."
+    }
+  },
+
+  "system_inventory": {
+    "system_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "system_hash",
+      "reason": "Primary key. Referenced as third_party_hash FK in transaction_events."
+    },
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Multi-tenant scoping."
+    },
+    "system_name": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Identifies the system for audit reporting."
+    },
+    "system_type": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "System classification affects which rules apply."
+    },
+    "pii_stored": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "Determines whether system is in DPDP scope. DPDP S.2(t). DPDP-016 S3."
+    },
+    "encryption_enabled": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.8(4) security safeguard check at system level. DPDP-008 S2."
+    },
+    "access_control_enabled": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "Role-based access control is minimum safeguard under DPDP S.8(4)."
+    },
+    "retention_policy_applied": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "System-level retention compliance signal."
+    },
+    "data_processor_type": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Internal vs third-party classification drives DPA requirement check. DPDP S.8(2)."
+    },
+    "dpa_signed": {
+      "gate": "LEGAL", "action": "KEEP",
+      "reason": "DPDP S.8(2) mandatory DPA check. Absence is direct violation. DPDP-016 S1."
+    },
+    "dpa_expiry_date": {
+      "gate": "LOGIC", "action": "TRUNCATE_DATE",
+      "reason": "Expired DPA is legally equivalent to no DPA. DPDP-016 S2."
+    },
+    "third_party_integrations": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Documents undocumented data flows — potential unauthorised processing signals."
+    }
+  },
+
+  "policies": {
+    "policy_id": {
+      "gate": "LOGIC", "action": "HASH",
+      "redacted_name": "policy_hash",
+      "reason": "Primary key."
+    },
+    "tenant_id": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Multi-tenant scoping."
+    },
+    "policy_type": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Classifies policy so agents can retrieve applicable policy for each rule check."
+    },
+    "policy_name": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Human-readable label for reporting."
+    },
+    "policy_value": {
+      "gate": "DROP", "action": "DROP",
+      "reason": "Free-text field — not machine-readable. Replaced by policy_value_numeric + policy_value_unit."
+    },
+    "policy_value_numeric": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Machine-readable policy value for rule engine comparison. Always paired with unit."
+    },
+    "policy_value_unit": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Unit context for numeric value — days/months/years/hours. Required for correct comparison."
+    },
+    "effective_date": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Determines which policy version governed a historical event."
+    },
+    "last_updated": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Most recent update date — used to identify current active version."
+    },
+    "is_active": {
+      "gate": "LOGIC", "action": "KEEP",
+      "reason": "Only active policy governs current compliance. Historical versions retained for backward audit."
+    }
+  }
+}
