@@ -20,7 +20,7 @@ EXPECTED_FILES: Dict[str, str] = {
 
 # tables that must have exactly 1 row per tenant_id
 SINGLE_ROW_TABLES: Set[str] = {
-    "governance_config", 
+    "governance_config"
 }
 
 # ═══════════════════════════════════════════════════════════════

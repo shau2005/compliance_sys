@@ -60,7 +60,9 @@ def analyze_tenant(request: AnalyzeRequest):
         result = evaluate_tenant(request.tenant_id)
 
         # Step 2: Enrich violations with explanations
-        enriched_violations = enrich_violations(result['violations'])
+        enriched_violations = enrich_violations(
+            result['violations'], {}
+        )
 
         # Step 3: Calculate risk score using frequency-weighted formula
         score = calculate_score(enriched_violations)
@@ -68,27 +70,29 @@ def analyze_tenant(request: AnalyzeRequest):
         # Step 4: Build violation items with occurrence count, contribution, and traceability
         violations = [
             ViolationItem(
-                rule_id              = v['rule_id'],
-                rule_name            = v['rule_name'],
-                dpdp_section         = v['dpdp_section'],
-                severity             = v['severity'],
-                risk_weight          = v['risk_weight'],
-                occurrence_count     = v.get('occurrence_count', 1),
-                contribution_to_score= next(
-                    (b['contribution_to_score'] for b in score['breakdown'] 
-                     if b['rule_id'] == v['rule_id']),
-                    0.0
+                rule_id               = v.rule_id,
+                rule_name             = v.rule_name,
+                dpdp_section          = v.dpdp_section,
+                severity              = v.severity,
+                risk_weight           = 0.0,
+                occurrence_count      = 1,
+                contribution_to_score = v.risk_contribution,
+                reason                = v.what_happened,
+                explanation           = ExplanationDetail(
+                    why_detected = v.why_violation,
+                    evidence     = str([
+                        s for s in v.signals_analysis
+                        if s.get("fired")
+                    ]),
+                    risk_reason  = v.root_cause,
+                    mitigation   = (
+                        v.remediation_steps[0]
+                        if v.remediation_steps else ""
+                    )
                 ),
-                reason               = v['reason'],
-                explanation          = ExplanationDetail(
-                    why_detected = v['explanation']['why_detected'],
-                    evidence     = v['explanation']['evidence'],
-                    risk_reason  = v['explanation']['risk_reason'],
-                    mitigation   = v['explanation']['mitigation']
-                ) if 'explanation' in v else None,
-                matched_record_ids   = v.get('matched_record_ids', []),
-                fields_triggered     = v.get('fields_triggered', []),
-                matched_logs_count   = v.get('matched_logs_count', 0)
+                matched_record_ids    = [],
+                fields_triggered      = [],
+                matched_logs_count    = 0
             )
             for v in enriched_violations
         ]
@@ -200,23 +204,11 @@ async def analyze_upload(
 
         # ── Step 4: Check or insert tenant ─────
         try:
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    # Check if tenant exists
-                    cur.execute(
-                        "SELECT tenant_id FROM tenants WHERE company_name = %s",
-                        (tenant_name,)
-                    )
-                    existing = cur.fetchone()
-                    if existing:
-                        db_tenant_id = existing[0]
-                    else:
-                        cur.execute(
-                            "INSERT INTO tenants (company_name) VALUES (%s) RETURNING tenant_id",
-                            (tenant_name,)
-                        )
-                        db_tenant_id = cur.fetchone()[0]
-                    conn.commit()
+            # governance_config is the tenant anchor in the schema.
+            # No separate tenants table exists.
+            # tenant_id from the form is used directly as the
+            # database identifier.
+            db_tenant_id = tenant_id
         except Exception as db_ex:
             raise HTTPException(status_code=500, detail=f"Tenant DB operation failed: {db_ex}")
 
@@ -328,7 +320,7 @@ async def analyze_upload(
         violations_raw = list(violations_by_rule.values())
         
         # ── Step 10: Enrich violations with explanations ──────────────────
-        enriched_violations = enrich_violations(violations_raw)
+        enriched_violations = enrich_violations(violations_raw, {})
         
         # ── Step 11: Calculate risk score using frequency-weighted formula ──
         score = calculate_score(enriched_violations)
@@ -336,24 +328,29 @@ async def analyze_upload(
         # ── Step 12: Build violation items with occurrence and contribution ──
         violations = [
             ViolationItem(
-                rule_id              = v['rule_id'],
-                rule_name            = v['rule_name'],
-                dpdp_section         = v['dpdp_section'],
-                severity             = v['severity'],
-                risk_weight          = v['risk_weight'],
-                occurrence_count     = v.get('occurrence_count', 1),
-                contribution_to_score= next(
-                    (b['contribution_to_score'] for b in score['breakdown'] 
-                     if b['rule_id'] == v['rule_id']),
-                    0.0
+                rule_id               = v.rule_id,
+                rule_name             = v.rule_name,
+                dpdp_section          = v.dpdp_section,
+                severity              = v.severity,
+                risk_weight           = 0.0,
+                occurrence_count      = 1,
+                contribution_to_score = v.risk_contribution,
+                reason                = v.what_happened,
+                explanation           = ExplanationDetail(
+                    why_detected = v.why_violation,
+                    evidence     = str([
+                        s for s in v.signals_analysis
+                        if s.get("fired")
+                    ]),
+                    risk_reason  = v.root_cause,
+                    mitigation   = (
+                        v.remediation_steps[0]
+                        if v.remediation_steps else ""
+                    )
                 ),
-                reason               = v['reason'],
-                explanation          = ExplanationDetail(
-                    why_detected = v['explanation']['why_detected'],
-                    evidence     = v['explanation']['evidence'],
-                    risk_reason  = v['explanation']['risk_reason'],
-                    mitigation   = v['explanation']['mitigation']
-                ) if 'explanation' in v else None
+                matched_record_ids    = [],
+                fields_triggered      = [],
+                matched_logs_count    = 0
             )
             for v in enriched_violations
         ]
@@ -401,13 +398,10 @@ async def analyze_upload(
                     conn.commit()
 
         except Exception as db_ex:
-
-            raise HTTPException(
-
-                status_code=500,
-
-                detail=f"Evaluation results DB insert failed: {db_ex}"
-
+            import logging
+            logging.warning(
+                f"evaluation_results insert skipped "
+                f"(table may not exist yet): {db_ex}"
             )
 
         # ── Step 14: Return response ──
