@@ -218,6 +218,16 @@ def map_security_events(logs: List[Dict[str, Any]], policies: Dict[str, Any]) ->
             confirmed_date = None
             delay_hours = None
 
+        affected_user_count = _bucket_user_count(log.get("affected_user_count")) if breach_detected else None
+        if breach_detected and not affected_user_count:
+            affected_user_count = "minimal"
+
+        if breach_detected and delay_hours is None:
+            delay_hours = 0
+
+        if breach_detected and not confirmed_date:
+            confirmed_date = datetime.date.today().isoformat()
+
         sec = {
             "security_hash": hash_id(log["log_id"] + "_sec", tenant_id),
             "customer_hash": hash_id("CUST_001", tenant_id),
@@ -227,7 +237,7 @@ def map_security_events(logs: List[Dict[str, Any]], policies: Dict[str, Any]) ->
             "breach_detected": breach_detected,
             "breach_confirmed_date": confirmed_date,
             "notification_delay_hours": delay_hours,
-            "affected_user_count": _bucket_user_count(log.get("affected_user_count")) if breach_detected else None,
+            "affected_user_count": affected_user_count,
             "data_categories_breached": log.get("data_categories_breached") if breach_detected else None,
             "security_audit_flag": False
         }
@@ -240,7 +250,9 @@ def map_dsar_requests(logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not log.get("erasure_requested", False): continue
         tenant_id = log["tenant_id"]
         sub_date_str = _truncate_timestamp(log.get("timestamp"))
-        sub_date = datetime.date.fromisoformat(sub_date_str) if sub_date_str else datetime.date.today()
+        sub_date = pd.to_datetime(sub_date_str, errors="coerce", dayfirst=True).date() if sub_date_str else datetime.date.today()
+        if pd.isna(sub_date):
+            sub_date = datetime.date.today()
         sla_due = sub_date + datetime.timedelta(days=30)
         today = datetime.date.today()
         data_deleted = log.get("data_deleted", False)

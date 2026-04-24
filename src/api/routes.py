@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 import psycopg
 import tempfile
 import shutil
@@ -7,11 +8,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 
-from src.api.schemas import AnalyzeRequest, AnalyzeResponse, ViolationItem, ExplanationDetail
-from src.rules_engine.evaluate import evaluate_tenant, evaluate_record, load_rules
-from src.scoring.score import calculate_score
-from src.explainability.service import enrich_violations
+from src.api.schemas import AnalyzeRequest, AnalyzeResponse, ViolationItem
 from src.anonymization.csv_loader import load_tenant_csvs
+from src.anonymization.field_mapper import anonymize_dataframe
+from src.anonymization.db_writer import write_tenant_data
+from src.agent_layer.orchestrator import run_compliance_analysis
 load_dotenv()
 
 DB_HOST = os.getenv('DB_HOST', 'localhost')
@@ -31,6 +32,93 @@ def get_db_connection():
         password=DB_PASSWORD,
         autocommit=False
     )
+
+
+def ensure_evaluation_results_table(conn: psycopg.Connection) -> None:
+    """
+    Create evaluation_results if missing, so inserts never fail silently.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.evaluation_results (
+                id BIGSERIAL PRIMARY KEY,
+                tenant_id character varying(32) NOT NULL,
+                result_json jsonb NOT NULL,
+                risk_score numeric(5,2) NOT NULL,
+                created_at timestamptz NOT NULL DEFAULT now()
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_evaluation_results_tenant_id
+            ON public.evaluation_results (tenant_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_evaluation_results_created_at
+            ON public.evaluation_results (created_at DESC)
+            """
+        )
+
+
+def build_violation_items(analysis_result: dict) -> list[ViolationItem]:
+    grouped: dict[str, dict] = {}
+    contributions = analysis_result.get("risk_contributions", {})
+
+    for violation in analysis_result.get("violations", []):
+        rule_id = violation.get("rule_id")
+        if not rule_id:
+            continue
+
+        if rule_id not in grouped:
+            grouped[rule_id] = {
+                "rule_id": rule_id,
+                "rule_name": violation.get("rule_name", rule_id),
+                "dpdp_section": violation.get("dpdp_section", ""),
+                "severity": violation.get("severity", "MEDIUM"),
+                "risk_weight": float(violation.get("risk_weight", 0.0)),
+                "occurrence_count": 0,
+                "reasons": [],
+                "matched_record_ids": set(),
+            }
+
+        entry = grouped[rule_id]
+        entry["occurrence_count"] += 1
+
+        record_id = violation.get("record_id")
+        if record_id:
+            entry["matched_record_ids"].add(str(record_id))
+
+        for reason in violation.get("signal_reasons", []):
+            if reason and reason not in entry["reasons"]:
+                entry["reasons"].append(reason)
+
+    items: list[ViolationItem] = []
+    for rule_id, entry in grouped.items():
+        matched_record_ids = sorted(entry["matched_record_ids"])
+        reason_text = "; ".join(entry["reasons"]) if entry["reasons"] else f"{entry['rule_name']} triggered"
+
+        items.append(
+            ViolationItem(
+                rule_id=entry["rule_id"],
+                rule_name=entry["rule_name"],
+                dpdp_section=entry["dpdp_section"],
+                severity=entry["severity"],
+                risk_weight=entry["risk_weight"],
+                occurrence_count=entry["occurrence_count"],
+                contribution_to_score=float(contributions.get(rule_id, 0.0)),
+                reason=reason_text,
+                explanation=None,
+                matched_record_ids=matched_record_ids,
+                fields_triggered=[],
+                matched_logs_count=len(matched_record_ids),
+            )
+        )
+
+    return sorted(items, key=lambda x: x.rule_id)
 
 
 @router.get("/health")
@@ -56,56 +144,17 @@ def analyze_tenant(request: AnalyzeRequest):
         Full compliance report with violations and risk score
     """
     try:
-        # Step 1: Run rules engine
-        result = evaluate_tenant(request.tenant_id)
+        result = run_compliance_analysis(request.tenant_id)
+        violations = build_violation_items(result)
 
-        # Step 2: Enrich violations with explanations
-        enriched_violations = enrich_violations(
-            result['violations'], {}
-        )
-
-        # Step 3: Calculate risk score using frequency-weighted formula
-        score = calculate_score(enriched_violations)
-
-        # Step 4: Build violation items with occurrence count, contribution, and traceability
-        violations = [
-            ViolationItem(
-                rule_id               = v.rule_id,
-                rule_name             = v.rule_name,
-                dpdp_section          = v.dpdp_section,
-                severity              = v.severity,
-                risk_weight           = 0.0,
-                occurrence_count      = 1,
-                contribution_to_score = v.risk_contribution,
-                reason                = v.what_happened,
-                explanation           = ExplanationDetail(
-                    why_detected = v.why_violation,
-                    evidence     = str([
-                        s for s in v.signals_analysis
-                        if s.get("fired")
-                    ]),
-                    risk_reason  = v.root_cause,
-                    mitigation   = (
-                        v.remediation_steps[0]
-                        if v.remediation_steps else ""
-                    )
-                ),
-                matched_record_ids    = [],
-                fields_triggered      = [],
-                matched_logs_count    = 0
-            )
-            for v in enriched_violations
-        ]
-
-        # Step 4: Return response
         return AnalyzeResponse(
-            tenant_id                   = request.tenant_id,
-            unique_rules_violated       = result['unique_rules_violated'],
-            total_violation_occurrences = result['total_violation_occurrences'],
-            risk_score                  = score['score'],
-            risk_tier                   = score['tier'],
-            violations                  = violations,
-            status                      = "success"
+            tenant_id=request.tenant_id,
+            unique_rules_violated=len(violations),
+            total_violation_occurrences=sum(v.occurrence_count for v in violations),
+            risk_score=float(result.get("risk_score", 0.0)),
+            risk_tier=result.get("risk_tier", "COMPLIANT"),
+            violations=violations,
+            status="success"
         )
 
     except FileNotFoundError:
@@ -164,8 +213,6 @@ async def analyze_upload(
         Full compliance report with violations and risk score
     """
     try:
-        # ── Step 1: Write uploaded CSV files to temp directory ───────────
-        # and pass directly to csv_loader for validation/anonymization
         temp_dir = None
         try:
             temp_dir = tempfile.mkdtemp()
@@ -189,239 +236,62 @@ async def analyze_upload(
                 with open(csv_path, "wb") as f:
                     f.write(csv_bytes)
 
-            # ── Step 2: Pass to csv_loader.load_tenant_csvs ───────────────
-            anonymized_data = load_tenant_csvs(Path(temp_dir), tenant_id)
+            loaded_data = load_tenant_csvs(Path(temp_dir), tenant_id)
+            mapped_data = {}
+            for table_name, df in loaded_data.items():
+                mapped_data[table_name] = anonymize_dataframe(df, table_name, tenant_id)
+
+            rows_written = write_tenant_data(tenant_id, mapped_data)
             
         except Exception as loader_error:
             raise HTTPException(
                 status_code=500,
-                detail=f"CSV loader anonymization failed: {str(loader_error)}"
+                detail=f"CSV ingestion failed: {str(loader_error)}"
             )
         finally:
-            # Clean up temp directory
             if temp_dir and os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
 
-        # ── Step 4: Check or insert tenant ─────
-        try:
-            # governance_config is the tenant anchor in the schema.
-            # No separate tenants table exists.
-            # tenant_id from the form is used directly as the
-            # database identifier.
-            db_tenant_id = tenant_id
-        except Exception as db_ex:
-            raise HTTPException(status_code=500, detail=f"Tenant DB operation failed: {db_ex}")
+        db_tenant_id = tenant_id
+        analysis_result = run_compliance_analysis(db_tenant_id)
+        violations = build_violation_items(analysis_result)
 
-        # ── Step 5: Create base records from single-row tables ──
-        base_record = {}
-        
-        # Add governance config
-        if "governance_config" in anonymized_data and len(anonymized_data["governance_config"]) > 0:
-            base_record.update(anonymized_data["governance_config"].iloc[0].to_dict())
-        
-        # Add system inventory
-        if "system_inventory" in anonymized_data and len(anonymized_data["system_inventory"]) > 0:
-            base_record.update(anonymized_data["system_inventory"].iloc[0].to_dict())
-        
-        # Add policies
-        if "policies" in anonymized_data and len(anonymized_data["policies"]) > 0:
-            base_record.update(anonymized_data["policies"].iloc[0].to_dict())
-
-        # ── Step 6: Run rules engine on base record ──────────────────────
-        rules = load_rules()
-        all_violations = []
-        
-        # Evaluate base record
-        violations_base = evaluate_record(base_record, rules)
-        all_violations.extend(violations_base)
-        
-        # ── Step 7: Evaluate EACH transaction and event record ───────────
-        # Process all multi-row tables
-        multi_row_tables = [
-            "customer_master",
-            "consent_records",
-            "transaction_events",
-            "access_logs",
-            "data_lifecycle",
-            "security_events",
-            "dsar_requests"
-        ]
-        
-        for table_name in multi_row_tables:
-            if table_name in anonymized_data:
-                for idx, row in anonymized_data[table_name].iterrows():
-                    record = row.to_dict()
-                    # Combine base record with individual row
-                    combined_record = {**base_record, **record}
-                    
-                    # Evaluate this specific record
-                    record_violations = evaluate_record(combined_record, rules)
-                    all_violations.extend(record_violations)
-        
-        # ── Step 8: Separate and deduplicate violations by type ────────────
-        policy_violations = {}  # Policy rules - count once
-        record_violations_list = []  # Record-based violations - count per record
-        
-        # Separate violations by entity type
-        for violation in all_violations:
-            rule_id = violation.get("rule_id")
-            entity = violation.get("entity", "")
-            evidence = violation.get("evidence", {})
-            record_id = evidence.get("record_id")
-            
-            # Policy/inventory violations - only keep first occurrence
-            if entity in ["governance_config", "system_inventory", "policies"]:
-                if rule_id not in policy_violations:
-                    policy_violations[rule_id] = {
-                        **violation,
-                        "occurrence_count": 1
-                    }
-            # Record violations - track by rule + record_id
-            else:
-                key = f"{rule_id}:{record_id}" if record_id else rule_id
-                record_violations_list.append({
-                    "rule_id": rule_id,
-                    "violation_obj": violation,
-                    "key": key
-                })
-        
-        # Deduplicate record violations by rule + record_id
-        unique_record_violations = {}
-        for item in record_violations_list:
-            key = item["key"]
-            if key not in unique_record_violations:
-                unique_record_violations[key] = {
-                    **item["violation_obj"],
-                    "occurrence_count": 1
-                }
-            else:
-                unique_record_violations[key]["occurrence_count"] += 1
-        
-        # ── Step 9: Aggregate by rule_id ──────────────────────────────────
-        violations_by_rule = {}
-        
-        # Add policy violations
-        for rule_id, violation in policy_violations.items():
-            violations_by_rule[rule_id] = violation
-        
-        # Add record violations (aggregate by rule_id)
-        for violation_key, violation in unique_record_violations.items():
-            rule_id = violation.get("rule_id")
-            
-            if rule_id not in violations_by_rule:
-                violations_by_rule[rule_id] = {
-                    **violation,
-                    "occurrence_count": violation.get("occurrence_count", 1)
-                }
-            else:
-                # Accumulate occurrence count for recurring violations
-                violations_by_rule[rule_id]["occurrence_count"] += violation.get("occurrence_count", 1)
-        
-        violations_raw = list(violations_by_rule.values())
-        
-        # ── Step 10: Enrich violations with explanations ──────────────────
-        enriched_violations = enrich_violations(violations_raw, {})
-        
-        # ── Step 11: Calculate risk score using frequency-weighted formula ──
-        score = calculate_score(enriched_violations)
-
-        # ── Step 12: Build violation items with occurrence and contribution ──
-        violations = [
-            ViolationItem(
-                rule_id               = v.rule_id,
-                rule_name             = v.rule_name,
-                dpdp_section          = v.dpdp_section,
-                severity              = v.severity,
-                risk_weight           = 0.0,
-                occurrence_count      = 1,
-                contribution_to_score = v.risk_contribution,
-                reason                = v.what_happened,
-                explanation           = ExplanationDetail(
-                    why_detected = v.why_violation,
-                    evidence     = str([
-                        s for s in v.signals_analysis
-                        if s.get("fired")
-                    ]),
-                    risk_reason  = v.root_cause,
-                    mitigation   = (
-                        v.remediation_steps[0]
-                        if v.remediation_steps else ""
-                    )
-                ),
-                matched_record_ids    = [],
-                fields_triggered      = [],
-                matched_logs_count    = 0
-            )
-            for v in enriched_violations
-        ]
-
-        # ── Step 13: Save evaluation result to DB ──
+        response_payload = {
+            "tenant_id": str(db_tenant_id),
+            "tenant_name": tenant_name,
+            "unique_rules_violated": len(violations),
+            "total_violation_occurrences": sum(v.occurrence_count for v in violations),
+            "risk_score": float(analysis_result.get("risk_score", 0.0)),
+            "risk_tier": analysis_result.get("risk_tier", "COMPLIANT"),
+            "rows_written": rows_written,
+            "violations": [v.dict() for v in violations],
+            "status": "success",
+        }
 
         try:
-
             with get_db_connection() as conn:
-
+                ensure_evaluation_results_table(conn)
                 with conn.cursor() as cur:
-
                     cur.execute(
-
                         "INSERT INTO evaluation_results (tenant_id, result_json, risk_score) VALUES (%s, %s, %s)",
-
                         (
-
                             db_tenant_id,
-
-                            json.dumps({
-
-                                "tenant_id": str(db_tenant_id),
-
-                                "unique_rules_violated": len(enriched_violations),
-
-                                "total_violation_occurrences": sum(v.get('occurrence_count', 1) for v in enriched_violations),
-
-                                "risk_score": score['score'],
-
-                                "risk_tier": score['tier'],
-
-                                "violations": [v.dict() for v in violations],
-
-                                "status": "success"
-
-                            }),
-
-                            float(score['score'])
-
-                        )
-
+                            json.dumps(response_payload),
+                            float(response_payload["risk_score"]),
+                        ),
                     )
-
-                    conn.commit()
-
+                conn.commit()
         except Exception as db_ex:
-            import logging
-            logging.warning(
-                f"evaluation_results insert skipped "
-                f"(table may not exist yet): {db_ex}"
-            )
-
-        # ── Step 14: Return response ──
+            logging.warning(f"evaluation_results insert failed: {db_ex}")
 
         return AnalyzeResponse(
-
-            tenant_id                   = str(db_tenant_id),
-
-            unique_rules_violated       = len(enriched_violations),
-
-            total_violation_occurrences = sum(v.get('occurrence_count', 1) for v in enriched_violations),
-
-            risk_score                  = score['score'],
-
-            risk_tier                   = score['tier'],
-
-            violations                  = violations,
-
-            status                      = "success"
-
+            tenant_id=str(db_tenant_id),
+            unique_rules_violated=response_payload["unique_rules_violated"],
+            total_violation_occurrences=response_payload["total_violation_occurrences"],
+            risk_score=response_payload["risk_score"],
+            risk_tier=response_payload["risk_tier"],
+            violations=violations,
+            status="success",
         )
 
     except ValueError as val_error:
@@ -431,11 +301,7 @@ async def analyze_upload(
         )
 
     except Exception as e:
-
         raise HTTPException(
-
             status_code=500,
-
             detail=f"Upload analysis failed: {str(e)}"
-
         )

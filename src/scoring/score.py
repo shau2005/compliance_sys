@@ -151,64 +151,32 @@ def calculate_score(violations: List[Dict]) -> Dict:
     }
 
 # ═══════════════════════════════════════════════════════════
-# SECTION 3: TEST WITH VIOLATIONS FROM EVALUATOR
+# SECTION 3: BASIC LOCAL SMOKE TEST
 # ═══════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    from src.rules_engine.evaluate import evaluate_tenant, evaluate_record, load_rules
-    
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("DPDP RISK SCORER TEST")
-    print("="*70)
-    
-    # Test 1: Score tenant_a (0 violations → 0 score, COMPLIANT)
-    print("\n📊 SCORING TENANT_A (Compliant Company)...")
-    result_a = evaluate_tenant("tenant_a")
-    violations_a = result_a["violations"]
-    
-    score_a = calculate_score(violations_a)
-    print(f"   Violations: {score_a['violation_count']}")
-    print(f"   Risk Score: {score_a['score']}/100")
-    print(f"   Risk Tier: {score_a['tier']} ✓")
-    
-    # Test 2: Score tenant_b (13 violations → ~67+ score, HIGH/CRITICAL)
-    print("\n📊 SCORING TENANT_B (Non-Compliant Company)...")
-    result_b = evaluate_tenant("tenant_b")
-    violations_b = result_b["violations"]
-    
-    score_b = calculate_score(violations_b)
-    print(f"   Violations: {score_b['violation_count']}")
-    print(f"   Risk Score: {score_b['score']}/100")
-    print(f"   Risk Tier: {score_b['tier']} ⚠️")
-    
-    print("\n   Breakdown by rule:")
-    for item in score_b['breakdown'][:5]:  # Show first 5
-        print(f"     {item['rule_id']} ({item['severity']}, weight={item['risk_weight']}) → {item['contribution']} points")
-    if len(score_b['breakdown']) > 5:
-        print(f"     ... and {len(score_b['breakdown']) - 5} more violations")
-    
-    # Test 3: Hardcoded test with single violation
-    print("\n📊 TEST CASE: Single HIGH Severity Violation")
-    test_violation = {
-        "rule_id": "DPDP-001",
-        "rule_name": "Missing Consent",
-        "severity": "HIGH",
-        "risk_weight": 0.9
-    }
-    score_test = calculate_score([test_violation])
-    print(f"   Risk Score: {score_test['score']}/100 (Expected: 67.5)")
-    print(f"   Risk Tier: {score_test['tier']} (Expected: HIGH)")
-    
-    # Test 4: Hardcoded test with single CRITICAL violation
-    print("\n📊 TEST CASE: Single CRITICAL Severity Violation")
-    test_violation_critical = {
-        "rule_id": "DPDP-008",
-        "rule_name": "Unencrypted PII",
-        "severity": "CRITICAL",
-        "risk_weight": 0.95
-    }
-    score_test_critical = calculate_score([test_violation_critical])
-    print(f"   Risk Score: {score_test_critical['score']}/100 (Expected: 95.0)")
-    print(f"   Risk Tier: {score_test_critical['tier']} (Expected: CRITICAL)")
-    
-    print("\n" + "="*70)
+    print("=" * 70)
+
+    sample_violations = [
+        {
+            "rule_id": "DPDP-001",
+            "severity": "HIGH",
+            "risk_weight": 0.9,
+            "occurrence_count": 2,
+        },
+        {
+            "rule_id": "DPDP-008",
+            "severity": "CRITICAL",
+            "risk_weight": 0.95,
+            "occurrence_count": 1,
+        },
+    ]
+
+    score = calculate_score(sample_violations)
+    print(f"Score: {score['score']}")
+    print(f"Tier: {score['tier']}")
+    print(f"Unique rules: {score['unique_rules_violated']}")
+    print(f"Total occurrences: {score['total_violation_occurrences']}")
+    print("\n" + "=" * 70)

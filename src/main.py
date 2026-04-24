@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
-from src.config import tenant_redacted_dir, RULES_FILE
-from src.rules_engine.evaluate import evaluate_tenant
-from src.scoring.score import calculate_score
+from src.agent_layer.orchestrator import run_compliance_analysis
 
 
 def print_report(tenant_id: str, result: dict, score: dict):
@@ -45,13 +43,15 @@ def run_compliance_check(tenant_id: str):
     """
     print(f"\n[MAIN] Starting compliance check for: {tenant_id}")
 
-    # Step 1: Run rules engine
-    print(f"[MAIN] Running rules engine...")
-    result = evaluate_tenant(tenant_id)
+    # Step 1: Run DB-backed compliance analysis
+    print(f"[MAIN] Running compliance analysis...")
+    result = run_compliance_analysis(tenant_id)
 
-    # Step 2: Calculate risk score
-    print(f"[MAIN] Calculating risk score...")
-    score = calculate_score(result['violations'])
+    # Step 2: Reformat score structure for existing report function
+    score = {
+        "score": result["risk_score"],
+        "tier": result["risk_tier"],
+    }
 
     # Step 3: Print report
     print_report(tenant_id, result, score)

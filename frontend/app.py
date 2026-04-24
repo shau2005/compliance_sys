@@ -130,6 +130,11 @@ st.info("Upload 10 CSV files for an unseen tenant. The system will process and r
 
 # ── Tenant Name Input ────────────────────────────────
 tenant_name = st.text_input("🏢 Tenant Name", help="Enter the tenant name", placeholder="e.g., MyFinTech Inc")
+tenant_id_input = st.text_input(
+    "🏷️ Tenant ID",
+    help="Must exactly match tenant_id in uploaded CSV rows",
+    placeholder="e.g., tenant_c"
+)
 
 # ── File Upload Fields ───────────────────────────────
 st.markdown("### 📁 Upload Required Files (10 CSV Files)")
@@ -178,6 +183,7 @@ for i in range(0, len(file_configs), 2):
 # ── Run Compliance Check Button ──────────────────────
 all_files_uploaded = (
     tenant_name and 
+    tenant_id_input and
     all(uploaded_files[key] is not None for key in uploaded_files)
 )
 
@@ -190,7 +196,7 @@ run = st.button(
 if run:
     with st.spinner(f"Analyzing {tenant_name}..."):
         try:
-            tenant_id = tenant_name.strip()
+            tenant_id = tenant_id_input.strip()
             
             # Prepare files for submission
             files_dict = {}
