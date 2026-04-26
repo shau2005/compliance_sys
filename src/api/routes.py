@@ -7,12 +7,19 @@ import shutil
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi.responses import Response
 
-from src.api.schemas import AnalyzeRequest, AnalyzeResponse, ViolationItem
+from src.api.schemas import (
+    AnalyzeRequest, AnalyzeResponse, ViolationItem,
+    FullExplanation, SignalDetail, AgentBreakdown, RemediationItem,
+)
 from src.anonymization.csv_loader import load_tenant_csvs
 from src.anonymization.field_mapper import anonymize_dataframe
 from src.anonymization.db_writer import write_tenant_data
 from src.agent_layer.orchestrator import run_compliance_analysis
+from src.explainability.service import enrich_violations, generate_executive_summary, RULE_EXPLANATIONS
+from src.explainability.report_builder import URGENCY_ORDER, SEVERITY_TO_URGENCY
+
 load_dotenv()
 
 DB_HOST = os.getenv('DB_HOST', 'localhost')
@@ -64,98 +71,247 @@ def ensure_evaluation_results_table(conn: psycopg.Connection) -> None:
         )
 
 
-def build_violation_items(analysis_result: dict) -> list[ViolationItem]:
-    grouped: dict[str, dict] = {}
+# ─────────────────────────────────────────────────────────
+# SHARED HELPERS — used by both /analyze and /analyze/upload
+# ─────────────────────────────────────────────────────────
+
+def _build_full_response(analysis_result: dict, tenant_name: str = "") -> dict:
+    tenant_id = analysis_result["tenant_id"]
     contributions = analysis_result.get("risk_contributions", {})
 
-    for violation in analysis_result.get("violations", []):
-        rule_id = violation.get("rule_id")
-        if not rule_id:
-            continue
+    all_records = (
+        analysis_result.get("violations", [])
+        + analysis_result.get("warnings", [])
+    )
+    enriched = enrich_violations(all_records, contributions)
 
-        if rule_id not in grouped:
-            grouped[rule_id] = {
-                "rule_id": rule_id,
-                "rule_name": violation.get("rule_name", rule_id),
-                "dpdp_section": violation.get("dpdp_section", ""),
-                "severity": violation.get("severity", "MEDIUM"),
-                "risk_weight": float(violation.get("risk_weight", 0.0)),
+    display_name = tenant_name or tenant_id
+
+    # ── Executive Summary (fail-safe) ──
+    try:
+        executive_summary = generate_executive_summary(
+            tenant_id=tenant_id,
+            tenant_name=display_name,
+            explanations=enriched,
+            risk_score=analysis_result["risk_score"],
+            tier=analysis_result["risk_tier"],
+        )
+    except Exception as e:
+        logging.warning(f"Executive summary generation failed: {e}")
+        executive_summary = (
+            f"{display_name} compliance analysis completed with risk score "
+            f"{analysis_result.get('risk_score', 0)}/100 "
+            f"({analysis_result.get('risk_tier', 'UNKNOWN')})."
+        )
+
+    violation_enriched = [
+        e for e in enriched if e.outcome == "VIOLATION"
+    ]
+
+    # ── Group violations by rule_id ──
+    # ViolationExplanation fields: rule_id, rule_name, dpdp_section,
+    #   agent_name, outcome, severity, what_happened, why_violation,
+    #   signals_analysis (List[Dict]), top_contributing_signal,
+    #   top_signal_weight, penalty_exposure_crore, root_cause,
+    #   remediation_steps (List[str]), risk_contribution
+    raw_violations = analysis_result.get("violations", [])
+    # Build a lookup: rule_id -> list of raw violation dicts (which have record_id, rule_score, risk_weight etc.)
+    raw_by_rule: dict[str, list] = {}
+    for v in raw_violations:
+        rid = v.get("rule_id")
+        if rid:
+            raw_by_rule.setdefault(rid, []).append(v)
+
+    grouped: dict[str, dict] = {}
+    for exp in violation_enriched:
+        rid = exp.rule_id
+        # Get risk_weight from the raw violation dict (not on ViolationExplanation)
+        raw_list = raw_by_rule.get(rid, [])
+        raw_risk_weight = raw_list[0].get("risk_weight", 0.0) if raw_list else 0.0
+
+        if rid not in grouped:
+            grouped[rid] = {
+                "rule_id": rid,
+                "rule_name": exp.rule_name,
+                "dpdp_section": exp.dpdp_section,
+                "severity": exp.severity,
+                "risk_weight": raw_risk_weight,
                 "occurrence_count": 0,
                 "reasons": [],
                 "matched_record_ids": set(),
+                "best_exp": exp,
+                "max_score": exp.top_signal_weight,
+                "penalty_exposure_crore": exp.penalty_exposure_crore,
+                "root_cause": exp.root_cause,
             }
+        else:
+            if exp.top_signal_weight > grouped[rid]["max_score"]:
+                grouped[rid]["max_score"] = exp.top_signal_weight
+                grouped[rid]["best_exp"] = exp
 
-        entry = grouped[rule_id]
-        entry["occurrence_count"] += 1
+        grouped[rid]["occurrence_count"] += 1
+        # record_id lives on the raw violation dict, not ViolationExplanation
+        for rv in raw_list:
+            rec_id = rv.get("record_id")
+            if rec_id:
+                grouped[rid]["matched_record_ids"].add(str(rec_id))
 
-        record_id = violation.get("record_id")
-        if record_id:
-            entry["matched_record_ids"].add(str(record_id))
+    # Collect signal_reasons from raw violation dicts
+    for rid, raw_list in raw_by_rule.items():
+        if rid in grouped:
+            for v in raw_list:
+                for reason in v.get("signal_reasons", []):
+                    if reason and reason not in grouped[rid]["reasons"]:
+                        grouped[rid]["reasons"].append(reason)
 
-        for reason in violation.get("signal_reasons", []):
-            if reason and reason not in entry["reasons"]:
-                entry["reasons"].append(reason)
+    violation_items: list[ViolationItem] = []
+    for rid, entry in grouped.items():
+        best = entry["best_exp"]
+        matched = sorted(entry["matched_record_ids"])
+        reason_text = (
+            "; ".join(entry["reasons"])
+            if entry["reasons"]
+            else f"{entry['rule_name']} triggered"
+        )
 
-    items: list[ViolationItem] = []
-    for rule_id, entry in grouped.items():
-        matched_record_ids = sorted(entry["matched_record_ids"])
-        reason_text = "; ".join(entry["reasons"]) if entry["reasons"] else f"{entry['rule_name']} triggered"
+        # best.signals_analysis is List[Dict] — use dict access, not dot access
+        signals = []
+        for s in best.signals_analysis:
+            sig_def = RULE_EXPLANATIONS.get(rid, {}).get("signal_definitions", {}).get(s.get("signal", ""), {})
+            signals.append(SignalDetail(
+                signal=s.get("signal", ""),
+                description=sig_def.get("description", s.get("description", "")),
+                weight=s.get("weight", 0.0),
+                fired=s.get("fired", False),
+                reason=s.get("reason", "—"),
+                phi=s.get("weight", 0.0) if s.get("fired", False) else 0.0,
+            ))
 
-        items.append(
+        # total_shap = sum of phi values
+        total_shap = sum(sig.phi for sig in signals)
+
+        explanation = FullExplanation(
+            why_detected=best.what_happened,
+            evidence=best.what_happened or "",
+            risk_reason=best.why_violation,
+            mitigation=best.remediation_steps if isinstance(best.remediation_steps, list) else [],
+            signals_analysis=signals,
+            top_contributing_signal=best.top_contributing_signal,
+            total_shap=round(total_shap, 4),
+            root_cause=best.root_cause,
+            penalty_exposure_crore=best.penalty_exposure_crore,
+        )
+
+        violation_items.append(
             ViolationItem(
-                rule_id=entry["rule_id"],
+                rule_id=rid,
                 rule_name=entry["rule_name"],
                 dpdp_section=entry["dpdp_section"],
                 severity=entry["severity"],
                 risk_weight=entry["risk_weight"],
                 occurrence_count=entry["occurrence_count"],
-                contribution_to_score=float(contributions.get(rule_id, 0.0)),
+                contribution_to_score=float(contributions.get(rid, 0.0)),
                 reason=reason_text,
-                explanation=None,
-                matched_record_ids=matched_record_ids,
+                explanation=explanation,
+                penalty_exposure_crore=entry["penalty_exposure_crore"],
+                root_cause=entry["root_cause"],
+                matched_record_ids=matched,
                 fields_triggered=[],
-                matched_logs_count=len(matched_record_ids),
+                matched_logs_count=len(matched),
             )
         )
 
-    return sorted(items, key=lambda x: x.rule_id)
+    violation_items.sort(key=lambda x: x.rule_id)
 
+    seen_remediation: set = set()
+    remediation_raw = []
+    for exp in violation_enriched:
+        if exp.rule_id not in seen_remediation:
+            urgency = SEVERITY_TO_URGENCY.get(exp.severity, "LOW")
+            remediation_raw.append({
+                "rule_id": exp.rule_id,
+                "rule_name": exp.rule_name,
+                "action": (
+                    exp.remediation_steps[0]
+                    if exp.remediation_steps else ""
+                ),
+                "urgency": urgency,
+                "penalty_exposure_crore": exp.penalty_exposure_crore,
+                "risk_contribution": exp.risk_contribution,
+            })
+            seen_remediation.add(exp.rule_id)
+
+    remediation_sorted = sorted(
+        remediation_raw,
+        key=lambda x: (
+            URGENCY_ORDER.get(x["urgency"], 3),
+            -x["risk_contribution"],
+            -x["penalty_exposure_crore"],
+        ),
+    )
+    remediation_priority = [
+        RemediationItem(
+            priority=i + 1,
+            rule_id=r["rule_id"],
+            rule_name=r["rule_name"],
+            action=r["action"],
+            urgency=r["urgency"],
+            penalty_exposure_crore=r["penalty_exposure_crore"],
+        )
+        for i, r in enumerate(remediation_sorted)
+    ]
+
+    seen_penalty: set = set()
+    total_penalty = 0
+    for exp in violation_enriched:
+        if exp.rule_id not in seen_penalty:
+            total_penalty += exp.penalty_exposure_crore
+            seen_penalty.add(exp.rule_id)
+
+    raw_breakdown = analysis_result.get("agent_breakdown", {})
+    agent_breakdown = {
+        name: AgentBreakdown(
+            violations=info.get("violations", 0),
+            warnings=info.get("warnings", 0),
+        )
+        for name, info in raw_breakdown.items()
+    }
+
+    return {
+        "tenant_id": tenant_id,
+        "unique_rules_violated": len(violation_items),
+        "total_violation_occurrences": sum(
+            v.occurrence_count for v in violation_items
+        ),
+        "risk_score": float(analysis_result.get("risk_score", 0.0)),
+        "risk_tier": analysis_result.get("risk_tier", "COMPLIANT"),
+        "violations": violation_items,
+        "status": "success",
+        "executive_summary": executive_summary,
+        "agent_breakdown": agent_breakdown,
+        "risk_contributions": contributions,
+        "remediation_priority": remediation_priority,
+        "total_penalty_exposure_crore": total_penalty,
+    }
+
+
+# ─────────────────────────────────────────────────────────
+# ENDPOINTS
+# ─────────────────────────────────────────────────────────
 
 @router.get("/health")
 def health_check():
-    """
-    Simple health check endpoint.
-    Visit http://localhost:8000/health to confirm API is running.
-    """
     return {
         "status": "running",
-        "service": "DPDP Compliance Engine"
+        "service": "Fin-Comply — DPDP Compliance Engine"
     }
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze_tenant(request: AnalyzeRequest):
-    """
-    Run full compliance check for a known tenant.
-
-    Input:
-        { "tenant_id": "tenant_b" }
-
-    Output:
-        Full compliance report with violations and risk score
-    """
     try:
-        result = run_compliance_analysis(request.tenant_id)
-        violations = build_violation_items(result)
-
-        return AnalyzeResponse(
-            tenant_id=request.tenant_id,
-            unique_rules_violated=len(violations),
-            total_violation_occurrences=sum(v.occurrence_count for v in violations),
-            risk_score=float(result.get("risk_score", 0.0)),
-            risk_tier=result.get("risk_tier", "COMPLIANT"),
-            violations=violations,
-            status="success"
-        )
+        analysis_result = run_compliance_analysis(request.tenant_id)
+        response = _build_full_response(analysis_result)
+        return AnalyzeResponse(**response)
 
     except FileNotFoundError:
         raise HTTPException(
@@ -185,33 +341,6 @@ async def analyze_upload(
     tenant_id: str = Form(...),
     tenant_name: str = Form(...)
 ):
-    """
-    Run full compliance check on 10 uploaded CSV files.
-
-    Input:
-        10 CSV files uploaded:
-        - governance_config.csv
-        - customer_master.csv
-        - consent_records.csv
-        - transaction_events.csv
-        - access_logs.csv
-        - data_lifecyle.csv
-        - security_events.csv
-        - dsar_requests.csv
-        - system_inventory.csv
-        - policies.csv
-        - tenant_id (form field)
-        - tenant_name (form field)
-
-    Flow:
-        1. Receive 10 CSV files
-        2. Pass directly to csv_loader.py for anonymization
-        4. Run compliance check
-        5. Return report
-
-    Output:
-        Full compliance report with violations and risk score
-    """
     try:
         temp_dir = None
         try:
@@ -242,7 +371,7 @@ async def analyze_upload(
                 mapped_data[table_name] = anonymize_dataframe(df, table_name, tenant_id)
 
             rows_written = write_tenant_data(tenant_id, mapped_data)
-            
+
         except Exception as loader_error:
             raise HTTPException(
                 status_code=500,
@@ -252,56 +381,86 @@ async def analyze_upload(
             if temp_dir and os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
 
-        db_tenant_id = tenant_id
-        analysis_result = run_compliance_analysis(db_tenant_id)
-        violations = build_violation_items(analysis_result)
-
-        response_payload = {
-            "tenant_id": str(db_tenant_id),
-            "tenant_name": tenant_name,
-            "unique_rules_violated": len(violations),
-            "total_violation_occurrences": sum(v.occurrence_count for v in violations),
-            "risk_score": float(analysis_result.get("risk_score", 0.0)),
-            "risk_tier": analysis_result.get("risk_tier", "COMPLIANT"),
-            "rows_written": rows_written,
-            "violations": [v.dict() for v in violations],
-            "status": "success",
-        }
+        try:
+            analysis_result = run_compliance_analysis(tenant_id)
+            response = _build_full_response(analysis_result, tenant_name)
+        except Exception as analysis_error:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Analysis engine failed: {str(analysis_error)}"
+            )
 
         try:
+            # Serialize the FULL response including violations, agent_breakdown, remediation
+            serializable_payload = {
+                "tenant_id": response["tenant_id"],
+                "tenant_name": tenant_name,
+                "unique_rules_violated": response["unique_rules_violated"],
+                "total_violation_occurrences": response["total_violation_occurrences"],
+                "risk_score": response["risk_score"],
+                "risk_tier": response["risk_tier"],
+                "status": response["status"],
+                "executive_summary": response["executive_summary"],
+                "total_penalty_exposure_crore": response["total_penalty_exposure_crore"],
+                "risk_contributions": response["risk_contributions"],
+                "violations": [v.model_dump() for v in response["violations"]],
+                "agent_breakdown": {k: v.model_dump() for k, v in response["agent_breakdown"].items()},
+                "remediation_priority": [r.model_dump() for r in response["remediation_priority"]],
+            }
             with get_db_connection() as conn:
                 ensure_evaluation_results_table(conn)
                 with conn.cursor() as cur:
                     cur.execute(
-                        "INSERT INTO evaluation_results (tenant_id, result_json, risk_score) VALUES (%s, %s, %s)",
+                        "INSERT INTO evaluation_results "
+                        "(tenant_id, result_json, risk_score) "
+                        "VALUES (%s, %s, %s)",
                         (
-                            db_tenant_id,
-                            json.dumps(response_payload),
-                            float(response_payload["risk_score"]),
+                            tenant_id,
+                            json.dumps(serializable_payload, default=str),
+                            float(response["risk_score"]),
                         ),
                     )
                 conn.commit()
         except Exception as db_ex:
             logging.warning(f"evaluation_results insert failed: {db_ex}")
 
-        return AnalyzeResponse(
-            tenant_id=str(db_tenant_id),
-            unique_rules_violated=response_payload["unique_rules_violated"],
-            total_violation_occurrences=response_payload["total_violation_occurrences"],
-            risk_score=response_payload["risk_score"],
-            risk_tier=response_payload["risk_tier"],
-            violations=violations,
-            status="success",
-        )
+        return AnalyzeResponse(**response)
 
+    except HTTPException:
+        raise
     except ValueError as val_error:
         raise HTTPException(
             status_code=400,
             detail=f"Validation error: {str(val_error)}"
         )
-
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Upload analysis failed: {str(e)}"
         )
+
+
+@router.get("/report/pdf/{tenant_id}")
+def download_pdf(tenant_id: str):
+    """
+    Placeholder PDF endpoint. (PDF Generation module to be built in Phase 4).
+    """
+    try:
+        from src.report.pdf_generator import generate_pdf_report
+        with get_db_connection() as conn:
+            pdf_buffer = generate_pdf_report(tenant_id, conn)
+            
+        return Response(
+            content=pdf_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=FinComply_AuditReport_{tenant_id}.pdf"
+            }
+        )
+    except ImportError:
+         raise HTTPException(status_code=501, detail="PDF module not implemented yet")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logging.error(f"PDF generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate PDF report")

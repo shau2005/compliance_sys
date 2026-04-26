@@ -7,6 +7,20 @@ from typing import List, Dict, Any, Optional
 from src.explainability.explanation import ViolationExplanation
 from src.explainability.service import generate_executive_summary
 
+URGENCY_ORDER = {
+    "IMMEDIATE": 1,
+    "HIGH": 2,
+    "MEDIUM": 3,
+    "LOW": 4
+}
+
+SEVERITY_TO_URGENCY = {
+    "CRITICAL": "IMMEDIATE",
+    "HIGH": "HIGH",
+    "MEDIUM": "MEDIUM",
+    "LOW": "LOW"
+}
+
 def build_compliance_report(
     tenant_id: str,
     tenant_name: Optional[str],
